@@ -23,14 +23,7 @@
     ],
     "trayIcon": {
       "iconPath": "icons/icon.png",
-      "menu": [
-        { "type": "MenuItem", "id": "show", "label": "Show Window" },
-        { "type": "Separator" },
-        { "type": "MenuItem", "id": "start", "label": "Start Proxy" },
-        { "type": "MenuItem", "id": "stop", "label": "Stop Proxy" },
-        { "type": "Separator" },
-        { "type": "MenuItem", "id": "quit", "label": "Quit" }
-      ]
+      "tooltip": "stls - ShadowTLS Client"
     }
   },
   "bundle": {
