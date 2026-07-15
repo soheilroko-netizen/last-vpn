@@ -113,15 +113,38 @@ jobs:
 
       - name: Add MSYS2 mingw64 bin to PATH (windres for Tauri resource)
         run: |
-          $msys2 = "C:\msys64\mingw64\bin"
-          if (-not (Test-Path "$msys2\windres.exe")) {
-            echo "ERROR: windres.exe not found at $msys2\windres.exe"
-            echo "MSYS2 mingw bin contents:"
-            Get-ChildItem $msys2 -Filter *windres* -ErrorAction SilentlyContinue
+          # GitHub windows runners ship msys2; locate windres anywhere under common roots
+          $roots = @("C:\msys64", "D:\msys64", "C:\msys2", "D:\msys2")
+          $found = $null
+          foreach ($r in $roots) {
+            if (Test-Path $r) {
+              $hit = Get-ChildItem -Path $r -Recurse -Include windres.exe,x86_64-w64-mingw32-windres.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($hit) { $found = $hit.FullName; break }
+            }
+          }
+
+          if (-not $found) {
+            # Try installing via pacman directly inside msys2
+            echo "windres not found via search; attempting pacman install..."
+            C:\msys64\usr\bin\bash.exe -lc "pacman -S --needed --noconfirm mingw-w64-x86_64-toolchain" 2>&1 | Out-Host
+            foreach ($r in $roots) {
+              if (Test-Path $r) {
+                $hit = Get-ChildItem -Path $r -Recurse -Include windres.exe,x86_64-w64-mingw32-windres.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($hit) { $found = $hit.FullName; break }
+              }
+            }
+          }
+
+          if (-not $found) {
+            echo "ERROR: windres.exe still not found after pacman install."
+            echo "--- msys64 tree (top) ---"
+            Get-ChildItem C:\msys64 -ErrorAction SilentlyContinue | Select-Object Name
             exit 1
           }
-          echo "found windres at $msys2\windres.exe"
-          echo "$msys2" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+          $mingwBin = Split-Path $found
+          echo "found windres at $found (bin: $mingwBin)"
+          echo "$mingwBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         shell: pwsh
 
       - name: Verify windres is GNU-compatible
@@ -163,7 +186,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUSTFLAGS: ""
-          WINDRES: ${{ 'C:\\msys64\\mingw64\\bin\\windres.exe' }}
+          WINDRES: windres
         with:
           args: --target x86_64-pc-windows-gnu
 
