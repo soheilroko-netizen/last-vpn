@@ -23,16 +23,14 @@
     ],
     "trayIcon": {
       "iconPath": "icons/icon.png",
-      "menu": {
-        "items": [
-          { "id": "show", "label": "Show Window" },
-          { "type": "separator" },
-          { "id": "start", "label": "Start Proxy" },
-          { "id": "stop", "label": "Stop Proxy" },
-          { "type": "separator" },
-          { "id": "quit", "label": "Quit" }
-        ]
-      }
+      "menu": [
+        { "id": "show", "label": "Show Window" },
+        { "type": "separator" },
+        { "id": "start", "label": "Start Proxy" },
+        { "id": "stop", "label": "Stop Proxy" },
+        { "type": "separator" },
+        { "id": "quit", "label": "Quit" }
+      ]
     }
   },
   "bundle": {
