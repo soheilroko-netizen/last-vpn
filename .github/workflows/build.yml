@@ -110,31 +110,51 @@ jobs:
           choco install mingw -y --no-progress
         shell: cmd
 
-      - name: Add mingw bin to PATH (windres for Tauri resource)
+      - name: Locate/create windres for Tauri resource (GNU)
         run: |
           $cargoBin = "$env:USERPROFILE\.cargo\bin"
-          $llvm = Join-Path $cargoBin "llvm-windres.exe"
           $dest = Join-Path $cargoBin "windres.exe"
-          if (Test-Path $llvm) {
-            Copy-Item $llvm $dest -Force
-            echo "copied llvm-windres -> windres.exe"
-          } else {
-            # fallback: choco's prefixed windres
-            $mingwWindres = (Get-ChildItem -Path C:\ProgramData\chocolatey\lib\mingw -Recurse -Filter x86_64-w64-mingw32-windres.exe -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
-            if ($mingwWindres) {
-              Copy-Item $mingwWindres $dest -Force
-              echo "copied $mingwWindres -> windres.exe"
-            } else {
-              echo "ERROR: no windres source found"
-              exit 1
+
+          # Candidate windres locations (in priority order)
+          $candidates = @(
+            (Join-Path $cargoBin "llvm-windres.exe"),
+            "C:\ProgramData\chocolatey\tools\mingw64\bin\windres.exe",
+            "C:\ProgramData\chocolatey\tools\mingw64\bin\x86_64-w64-mingw32-windres.exe",
+            "C:\msys64\mingw64\bin\windres.exe",
+            "C:\msys64\mingw64\bin\x86_64-w64-mingw32-windres.exe"
+          )
+
+          $found = $null
+          foreach ($c in $candidates) {
+            if (Test-Path $c) { $found = $c; break }
+          }
+
+          # Fallback: recursive search under common roots
+          if (-not $found) {
+            $roots = @("C:\ProgramData\chocolatey\tools", "C:\ProgramData\chocolatey\lib", "C:\msys64")
+            foreach ($r in $roots) {
+              if (Test-Path $r) {
+                $hit = Get-ChildItem -Path $r -Recurse -Include windres.exe,x86_64-w64-mingw32-windres.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($hit) { $found = $hit.FullName; break }
+              }
             }
           }
-          # Add mingw bin (for any other mingw tools) to PATH
-          $mingw = (Get-ChildItem -Path C:\ProgramData\chocolatey\lib\mingw -Recurse -Filter x86_64-w64-mingw32-windres.exe -ErrorAction SilentlyContinue | Select-Object -First 1).DirectoryName
-          if (-not $mingw) { $mingw = "C:\msys64\mingw64\bin" }
-          echo "mingw dir: $mingw"
+
+          if ($found) {
+            Copy-Item $found $dest -Force
+            echo "copied $found -> $dest"
+          } else {
+            echo "ERROR: no windres found anywhere. Candidates checked:"
+            $candidates | ForEach-Object { echo "  $_" }
+            echo "--- choco mingw install state ---"
+            choco list --local-only 2>$null | Select-String mingw
+            exit 1
+          }
+
+          # Add cargo bin (windres.exe + toolchain) and mingw bin to PATH
+          $mingwBin = Split-Path $found
           echo "$cargoBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          echo "$mingw" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "$mingwBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         shell: pwsh
 
       - name: Verify windres is GNU-compatible
