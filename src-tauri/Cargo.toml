@@ -7,11 +7,6 @@ authors = ["soheilroko-netizen"]
 license = "MIT"
 repository = "https://github.com/soheilroko-netizen/stls"
 
-[workspace]
-
-[workspace.members]
-# Frontend handled by npm
-
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "dialog", "fs", "shell", "log", "notification", "os", "store", "updater"] }
 serde = { version = "1.0", features = ["derive"] }
