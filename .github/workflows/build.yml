@@ -57,8 +57,12 @@ jobs:
           architecture: ${{ matrix.node_arch }}
           cache: 'npm'
 
+      - name: Generate package-lock.json
+        run: npm install --package-lock-only
+        working-directory: ./
+
       - name: Install frontend dependencies
-        run: npm install
+        run: npm ci
         working-directory: ./
 
       - name: Build frontend
@@ -128,8 +132,11 @@ jobs:
           architecture: x64
           cache: 'npm'
 
+      - name: Generate package-lock.json
+        run: npm install --package-lock-only
+
       - name: Install frontend dependencies
-        run: npm install
+        run: npm ci
 
       - name: Build frontend
         run: npm run build
