@@ -508,7 +508,7 @@ async fn handle_connection(
 ) -> Result<()> {
     socks5::handle_handshake(&mut client).await?;
     
-    let (target_addr, bind_addr) = socks5::handle_request(&mut client).await?;
+    let (_target_addr, bind_addr) = socks5::handle_request(&mut client).await?;
     
     let mut upstream = TcpStream::connect(upstream_addr).await?;
     

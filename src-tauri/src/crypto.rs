@@ -3,7 +3,7 @@ use base64::{engine::general_purpose, Engine as _};
 use hmac::{Hmac, Mac};
 use rand::{rngs::OsRng, RngCore};
 use sha1::Sha1;
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 use std::str::FromStr;
 
 pub type HmacSha1 = Hmac<Sha1>;
@@ -55,7 +55,7 @@ pub fn decode_ss_uri(uri: &str) -> Result<(String, String, String, u16)> {
     }
     
     let uri = &uri[5..];
-    let (main_part, name) = if let Some(idx) = uri.find('#') {
+    let (main_part, _name) = if let Some(idx) = uri.find('#') {
         (&uri[..idx], percent_decode(&uri[idx + 1..])?)
     } else {
         (uri, String::new())

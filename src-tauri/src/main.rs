@@ -96,7 +96,7 @@ async fn import_profiles(state: tauri::State<'_, AppState>, profiles: Vec<Profil
 
 fn save_config_to_store(state: &tauri::State<'_, AppState>, config: &AppConfig) {
     if let Some(handle) = state.app_handle.lock().unwrap().as_ref() {
-        if let Ok(store) = handle.get_store("config.json") {
+        if let Some(store) = handle.get_store("config.json") {
             let _ = store.set("config", serde_json::to_value(config).unwrap());
             let _ = store.save();
         }
@@ -230,7 +230,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let handle = app.handle().clone();
             let state = app_state.clone();
             tauri::async_runtime::spawn(async move {
-                if let Ok(store) = handle.get_store("config.json") {
+                if let Some(store) = handle.get_store("config.json") {
                     if let Some(value) = store.get("config") {
                         if let Ok(config) = serde_json::from_value::<AppConfig>(value.clone()) {
                             let mut state_config = state.config.write().await;

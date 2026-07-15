@@ -136,7 +136,7 @@ pub fn decode_ss_uri(uri: &str) -> Result<(String, String, String, u16), anyhow:
     }
 
     let uri = &uri[5..];
-    let (main_part, name) = if let Some(idx) = uri.find('#') {
+    let (main_part, _name) = if let Some(idx) = uri.find('#') {
         (&uri[..idx], percent_decode(&uri[idx + 1..])?)
     } else {
         (uri, String::new())

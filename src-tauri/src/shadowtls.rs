@@ -4,7 +4,7 @@
 
 use anyhow::{bail, Context, Result};
 use bytes::{BufMut, BytesMut};
-use hmac::{Hmac, Mac};
+use hmac::Hmac;
 use rand::{rngs::OsRng, RngCore};
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
