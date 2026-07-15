@@ -113,14 +113,8 @@ impl ProxyManager {
                 }
                 result = listener.accept() => {
                     let (mut local_stream, _) = result?;
-                    let mut remote_client = match client.clone_client().await {
-                        Ok(c) => c,
-                        Err(e) => {
-                            error!("Failed to clone ShadowTLS client: {}", e);
-                            continue;
-                        }
-                    };
-                    
+                    let mut remote_client = client.clone();
+
                     tokio::spawn(async move {
                         let _ = relay_connection(&mut local_stream, &mut *remote_client).await;
                     });
@@ -131,18 +125,19 @@ impl ProxyManager {
     }
     
     async fn relay_connection(local: &mut tokio::net::TcpStream, remote: &mut dyn ShadowTlsClient) -> Result<()> {
-        let mut buf = [0u8; 16384];
+        let mut local_buf = [0u8; 16384];
+        let mut remote_buf = [0u8; 16384];
         loop {
             tokio::select! {
-                n = local.read(&mut buf) => {
+                n = local.read(&mut local_buf) => {
                     let n = n?;
                     if n == 0 { break; }
-                    remote.write(&buf[..n]).await?;
+                    remote.write(&local_buf[..n]).await?;
                 }
-                n = remote.read(&mut buf) => {
+                n = remote.read(&mut remote_buf) => {
                     let n = n?;
                     if n == 0 { break; }
-                    local.write_all(&buf[..n]).await?;
+                    local.write_all(&remote_buf[..n]).await?;
                 }
             }
         }

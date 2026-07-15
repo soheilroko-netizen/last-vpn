@@ -9,30 +9,27 @@ mod shadowtls;
 mod shadowsocks;
 mod tray;
 
-use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::sync::{Arc, Mutex};
 
-use tauri::{
-    menu::{Menu, MenuItem, PredefinedMenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, Runtime, WebviewUrl, WebviewWindowBuilder,
-};
+use tauri::Manager;
+use tauri_plugin_store::ManagerExt;
 
 use crate::config::{AppConfig, Profile, ProxyStatus, ShadowTLSConfig, ShadowsocksConfig, TestResult};
 use crate::proxy::{ProxyManager, test_connection};
+use crate::tray::{create_main_window, create_tray};
 
 struct AppState {
     proxy_manager: Arc<tokio::sync::Mutex<ProxyManager>>,
-    config: Arc<RwLock<AppConfig>>,
-    app_handle: Arc<tokio::sync::Mutex<Option<AppHandle>>>,
+    config: Arc<tokio::sync::RwLock<AppConfig>>,
+    app_handle: Arc<Mutex<Option<tauri::AppHandle>>>,
 }
 
 impl AppState {
     fn new() -> Self {
         Self {
             proxy_manager: Arc::new(tokio::sync::Mutex::new(ProxyManager::new())),
-            config: Arc::new(RwLock::new(AppConfig::default())),
-            app_handle: Arc::new(tokio::sync::Mutex::new(None)),
+            config: Arc::new(tokio::sync::RwLock::new(AppConfig::default())),
+            app_handle: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -47,12 +44,7 @@ async fn get_config(state: tauri::State<'_, AppState>) -> Result<AppConfig, Stri
 async fn save_config(state: tauri::State<'_, AppState>, config: AppConfig) -> Result<(), String> {
     let mut cfg = state.config.write().await;
     *cfg = config.clone();
-    if let Some(handle) = state.app_handle.lock().await.as_ref() {
-        if let Ok(store) = handle.store("config.json") {
-            let _ = store.set("config", serde_json::to_value(&config).unwrap());
-            let _ = store.save();
-        }
-    }
+    save_config_to_store(&state, &config);
     Ok(())
 }
 
@@ -66,7 +58,8 @@ async fn get_profiles(state: tauri::State<'_, AppState>) -> Result<Vec<Profile>,
 async fn add_profile(state: tauri::State<'_, AppState>, profile: Profile) -> Result<(), String> {
     let mut config = state.config.write().await;
     config.profiles.push(profile);
-    save_config_to_store(&state, config.clone()).await
+    save_config_to_store(&state, &config);
+    Ok(())
 }
 
 #[tauri::command]
@@ -74,7 +67,8 @@ async fn update_profile(state: tauri::State<'_, AppState>, index: usize, profile
     let mut config = state.config.write().await;
     if index < config.profiles.len() {
         config.profiles[index] = profile;
-        save_config_to_store(&state, config.clone()).await
+        save_config_to_store(&state, &config);
+        Ok(())
     } else {
         Err("Profile index out of bounds".into())
     }
@@ -85,7 +79,8 @@ async fn delete_profile(state: tauri::State<'_, AppState>, index: usize) -> Resu
     let mut config = state.config.write().await;
     if index < config.profiles.len() {
         config.profiles.remove(index);
-        save_config_to_store(&state, config.clone()).await
+        save_config_to_store(&state, &config);
+        Ok(())
     } else {
         Err("Profile index out of bounds".into())
     }
@@ -95,17 +90,17 @@ async fn delete_profile(state: tauri::State<'_, AppState>, index: usize) -> Resu
 async fn import_profiles(state: tauri::State<'_, AppState>, profiles: Vec<Profile>) -> Result<(), String> {
     let mut config = state.config.write().await;
     config.profiles.extend(profiles);
-    save_config_to_store(&state, config.clone()).await
+    save_config_to_store(&state, &config);
+    Ok(())
 }
 
-async fn save_config_to_store(state: &tauri::State<'_, AppState>, config: AppConfig) -> Result<(), String> {
-    if let Some(handle) = state.app_handle.lock().await.as_ref() {
+fn save_config_to_store(state: &tauri::State<'_, AppState>, config: &AppConfig) {
+    if let Some(handle) = state.app_handle.lock().unwrap().as_ref() {
         if let Ok(store) = handle.store("config.json") {
-            let _ = store.set("config", serde_json::to_value(&config).unwrap());
+            let _ = store.set("config", serde_json::to_value(config).unwrap());
             let _ = store.save();
         }
     }
-    Ok(())
 }
 
 #[tauri::command]
@@ -114,7 +109,7 @@ async fn start_proxy(state: tauri::State<'_, AppState>, profile_index: usize) ->
     let profile = config.profiles.get(profile_index)
         .ok_or("Profile not found")?
         .clone();
-    
+
     let mut proxy = state.proxy_manager.lock().await;
     proxy.start(profile).await.map_err(|e| e.to_string())
 }
@@ -132,14 +127,13 @@ async fn get_proxy_status(state: tauri::State<'_, AppState>) -> Result<ProxyStat
 }
 
 #[tauri::command]
-async fn test_connection(state: tauri::State<'_, AppState>, profile_index: usize) -> Result<TestResult, String> {
+async fn test_connection_cmd(state: tauri::State<'_, AppState>, profile_index: usize) -> Result<TestResult, String> {
     let config = state.config.read().await.clone();
     let profile = config.profiles.get(profile_index)
         .ok_or("Profile not found")?
         .clone();
-    
-    let result = test_connection(&profile).await;
-    Ok(result)
+
+    Ok(test_connection(&profile))
 }
 
 #[tauri::command]
@@ -163,7 +157,7 @@ async fn generate_shadowtls_json(config: ShadowTLSConfig) -> Result<String, Stri
 }
 
 #[tauri::command]
-async fn show_window(app_handle: AppHandle) -> Result<(), String> {
+async fn show_window(app_handle: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app_handle.get_webview_window("main") {
         window.show().map_err(|e| e.to_string())?;
         window.set_focus().map_err(|e| e.to_string())?;
@@ -172,7 +166,7 @@ async fn show_window(app_handle: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn hide_window(app_handle: AppHandle) -> Result<(), String> {
+async fn hide_window(app_handle: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app_handle.get_webview_window("main") {
         window.hide().map_err(|e| e.to_string())?;
     }
@@ -180,78 +174,14 @@ async fn hide_window(app_handle: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn minimize_window(app_handle: AppHandle) -> Result<(), String> {
+async fn minimize_window(app_handle: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app_handle.get_webview_window("main") {
         window.minimize().map_err(|e| e.to_string())?;
     }
     Ok(())
 }
 
-async fn create_tray<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
-    let show = MenuItem::with_id(app, "show", "Show Window", true, None::<&str>)?;
-    let start = MenuItem::with_id(app, "start", "Start Proxy", true, None::<&str>)?;
-    let stop = MenuItem::with_id(app, "stop", "Stop Proxy", true, None::<&str>)?;
-    let separator = PredefinedMenuItem::separator(app)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-
-    let menu = Menu::with_items(app, &[&show, &separator, &start, &stop, &separator, &quit])?;
-
-    TrayIconBuilder::new()
-        .icon(app.default_window_icon().cloned().unwrap())
-        .menu(&menu)
-        .tooltip("stls - Disconnected")
-        .on_menu_event(move |app, event| match event.id.as_ref() {
-            "show" => {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-            }
-            "start" => {
-                let _ = app.emit("tray-start-proxy", ());
-            }
-            "stop" => {
-                let _ = app.emit("tray-stop-proxy", ());
-            }
-            "quit" => {
-                app.exit(0);
-            }
-            _ => {}
-        })
-        .on_tray_icon_event(move |app, event| {
-            if let TrayIconEvent::Click { button, button_state, .. } = event {
-                if button == MouseButton::Left && button_state == MouseButtonState::Up {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let visible = window.is_visible().unwrap_or(false);
-                        if visible {
-                            let _ = window.hide();
-                        } else {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
-                }
-            }
-        })
-        .build(app)?;
-
-    Ok(())
-}
-
-async fn create_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
-    WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-        .title("stls - ShadowTLS Client")
-        .inner_size(600.0, 700.0)
-        .min_inner_size(500.0, 600.0)
-        .resizable(true)
-        .visible(false)
-        .build()?;
-
-    Ok(())
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_target(false)
@@ -283,7 +213,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             start_proxy,
             stop_proxy,
             get_proxy_status,
-            test_connection,
+            test_connection_cmd,
             parse_ss_uri,
             parse_shadowtls_json,
             generate_ss_uri,
@@ -293,11 +223,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             minimize_window,
         ])
         .setup(move |app| {
-            let state = app_state.clone();
-            *state.app_handle.lock().await = Some(app.handle().clone());
+            // Store app handle (sync context)
+            *app_state.app_handle.lock().unwrap() = Some(app.handle().clone());
 
-            // Load config from store
+            // Load config from store asynchronously
             let handle = app.handle().clone();
+            let state = app_state.clone();
             tauri::async_runtime::spawn(async move {
                 if let Ok(store) = handle.store("config.json") {
                     let _ = store.load();
@@ -312,17 +243,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
 
             // Create system tray
-            create_tray(app.handle()).await?;
+            create_tray(app.handle())?;
 
             // Create main window (hidden by default)
-            create_main_window(app.handle()).await?;
+            create_main_window(app.handle())?;
 
             // Handle window close event - hide instead of quit
             if let Some(window) = app.get_webview_window("main") {
+                let win = window.clone();
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                         api.prevent_close();
-                        let _ = window.hide();
+                        let _ = win.hide();
                     }
                 });
             }

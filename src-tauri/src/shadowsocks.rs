@@ -12,7 +12,7 @@ use tokio::{
 };
 use tracing::{debug, error, info, warn};
 
-use crate::config::{ShadowsocksConfig, ShadowsocksConfig as SsConfig};
+use crate::config::ShadowsocksConfig;
 use crate::crypto::{decode_ss_uri, encode_ss_uri, hmac_sha1, kdf, random_bytes, verify_hmac,
     FAKE_HTTP_HEADER, FAKE_REQUEST_LENGTH_RANGE, TLS_APPLICATION_DATA, TLS_HANDSHAKE,
     TLS_HMAC_SIZE, TLS_RANDOM_SIZE, TLS_SESSION_ID_SIZE, TLS_SERVER_HELLO, TLS_VERSION_1_2,
@@ -154,6 +154,7 @@ mod cipher2022 {
         fn key_len(&self) -> usize;
         fn nonce_len(&self) -> usize;
         fn tag_len(&self) -> usize;
+        fn boxed_clone(&self) -> Box<dyn AeadCipher>;
     }
 
     pub struct Aes128GcmCipher {
@@ -193,6 +194,12 @@ mod cipher2022 {
         fn key_len(&self) -> usize { 16 }
         fn nonce_len(&self) -> usize { 12 }
         fn tag_len(&self) -> usize { 16 }
+        
+        fn boxed_clone(&self) -> Box<dyn AeadCipher> {
+            let mut k = [0u8; 16];
+            k.copy_from_slice(&self.key);
+            Box::new(Aes128GcmCipher::new(&k).unwrap())
+        }
     }
 
     pub struct Aes256GcmCipher {
@@ -232,6 +239,12 @@ mod cipher2022 {
         fn key_len(&self) -> usize { 32 }
         fn nonce_len(&self) -> usize { 12 }
         fn tag_len(&self) -> usize { 16 }
+        
+        fn boxed_clone(&self) -> Box<dyn AeadCipher> {
+            let mut k = [0u8; 32];
+            k.copy_from_slice(&self.key);
+            Box::new(Aes256GcmCipher::new(&k).unwrap())
+        }
     }
 
     pub struct ChaCha20Poly1305Cipher {
@@ -271,6 +284,12 @@ mod cipher2022 {
         fn key_len(&self) -> usize { 32 }
         fn nonce_len(&self) -> usize { 12 }
         fn tag_len(&self) -> usize { 16 }
+        
+        fn boxed_clone(&self) -> Box<dyn AeadCipher> {
+            let mut k = [0u8; 32];
+            k.copy_from_slice(&self.key);
+            Box::new(ChaCha20Poly1305Cipher::new(&k).unwrap())
+        }
     }
 
     /// 2022-blake3-aes-128-gcm
@@ -496,42 +515,29 @@ async fn handle_connection(
     
     socks5::send_response(&mut client, socks5::REP_SUCCESS, &bind_addr).await?;
     
-    let mut client_encrypted = SsStream::new(client, cipher.lock().await.clone_cipher()?);
-    let mut upstream_encrypted = SsStream::new(upstream, cipher.lock().await.clone_cipher()?);
-    
-    let client_to_up = async {
-        let mut buf = [0u8; 16384];
-        loop {
-            let n = client_encrypted.read(&mut buf).await?;
-            if n == 0 { break; }
-            upstream_encrypted.write(&buf[..n]).await?;
-        }
-        let _ = upstream_encrypted.shutdown().await;
-    };
-    
-    let up_to_client = async {
-        let mut buf = [0u8; 16384];
-        loop {
-            let n = upstream_encrypted.read(&mut buf).await?;
-            if n == 0 { break; }
-            client_encrypted.write(&buf[..n]).await?;
-        }
-        let _ = client_encrypted.shutdown().await;
-    };
-    
-    tokio::select! {
-        _ = client_to_up => {},
-        _ = up_to_client => {},
-    }
-    
-    Ok(())
-}
+    let mut client_encrypted = SsStream::new(client, cipher.lock().await.boxed_clone());
+    let mut upstream_encrypted = SsStream::new(upstream, cipher.lock().await.boxed_clone());
 
-// Need to add clone_cipher to AeadCipher trait
-impl Box<dyn AeadCipher> {
-    fn clone_cipher(&self) -> Result<Box<dyn AeadCipher>> {
-        bail!("Cipher cloning not implemented - use Arc<Mutex<>> instead")
+    let mut client_buf = [0u8; 16384];
+    let mut upstream_buf = [0u8; 16384];
+    loop {
+        tokio::select! {
+            n = client_encrypted.read(&mut client_buf) => {
+                let n = n?;
+                if n == 0 { break; }
+                upstream_encrypted.write(&client_buf[..n]).await?;
+            }
+            n = upstream_encrypted.read(&mut upstream_buf) => {
+                let n = n?;
+                if n == 0 { break; }
+                client_encrypted.write(&upstream_buf[..n]).await?;
+            }
+        }
     }
+    let _ = client_encrypted.shutdown().await;
+    let _ = upstream_encrypted.shutdown().await;
+
+    Ok(())
 }
 
 pub struct ShadowsocksClient;

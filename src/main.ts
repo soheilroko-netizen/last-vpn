@@ -1,6 +1,7 @@
 import './styles.css';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+
 interface ShadowsocksConfig {
   cipher: string;
   password: string;
@@ -38,12 +39,11 @@ interface AppConfig {
   };
 }
 
-interface ProxyStatus {
-  state: 'Stopped' | 'Starting' | 'Running' | 'Error';
-  profile?: string;
-  local_port?: number;
-  error?: string;
-}
+type ProxyStatus = 
+  | { Stopped: null }
+  | { Starting: null }
+  | { Running: { profile: string; local_port: number } }
+  | { Error: { error: string } };
 
 interface TestResult {
   success: boolean;
@@ -61,7 +61,7 @@ const CIPHERS = [
 ];
 
 let currentConfig: AppConfig = { profiles: [], settings: { auto_start: false, minimize_to_tray: true, log_level: 'info' } };
-let currentStatus: ProxyStatus = { state: 'Stopped' };
+let currentStatus: ProxyStatus = { Stopped: null };
 let selectedProfileIndex = -1;
 
 const $ = (sel: string) => document.querySelector(sel)!;
@@ -86,19 +86,15 @@ function renderStatus(status: ProxyStatus) {
   let text = 'Stopped';
   let dot = true;
 
-  switch (status.state) {
-    case 'Starting':
-      className = 'status-badge status-starting';
-      text = 'Starting...';
-      break;
-    case 'Running':
-      className = 'status-badge status-running';
-      text = `Running on 127.0.0.1:${status.local_port}`;
-      break;
-    case 'Error':
-      className = 'status-badge status-error';
-      text = `Error: ${status.error}`;
-      break;
+  if ('Starting' in status) {
+    className = 'status-badge status-starting';
+    text = 'Starting...';
+  } else if ('Running' in status) {
+    className = 'status-badge status-running';
+    text = `Running on 127.0.0.1:${status.Running.local_port}`;
+  } else if ('Error' in status) {
+    className = 'status-badge status-error';
+    text = `Error: ${status.Error.error}`;
   }
 
   el.className = className;
@@ -265,7 +261,7 @@ async function testProfile(index: number) {
   btn.textContent = '...';
 
   try {
-    const result: TestResult = await invoke('test_connection', { profileIndex: index });
+    const result: TestResult = await invoke('test_connection_cmd', { profileIndex: index });
     if (result.success) {
       btn.textContent = `✓ ${result.latency_ms}ms`;
       btn.classList.add('btn-primary');
@@ -350,12 +346,12 @@ async function startProxy() {
 
   try {
     await invoke('start_proxy', { profileIndex: selectedProfileIndex });
-    currentStatus = { state: 'Running', profile: currentConfig.profiles[selectedProfileIndex].name, local_port: currentConfig.profiles[selectedProfileIndex].local_socks_port };
+    currentStatus = { Running: { profile: currentConfig.profiles[selectedProfileIndex].name, local_port: currentConfig.profiles[selectedProfileIndex].local_socks_port } };
     renderStatus(currentStatus);
     updateProxyButtons();
   } catch (err) {
     alert('Failed to start: ' + err);
-    currentStatus = { state: 'Error', error: String(err) };
+    currentStatus = { Error: { error: String(err) } };
     renderStatus(currentStatus);
   }
 }
@@ -363,7 +359,7 @@ async function startProxy() {
 async function stopProxy() {
   try {
     await invoke('stop_proxy');
-    currentStatus = { state: 'Stopped' };
+    currentStatus = { Stopped: null };
     renderStatus(currentStatus);
     updateProxyButtons();
   } catch (err) {
@@ -372,7 +368,7 @@ async function stopProxy() {
 }
 
 function updateProxyButtons() {
-  const running = currentStatus.state === 'Running';
+  const running = 'Running' in currentStatus;
   ($('#btn-start') as HTMLButtonElement).disabled = running;
   ($('#btn-stop') as HTMLButtonElement).disabled = !running;
 }
@@ -395,7 +391,17 @@ async function saveConfig() {
 // Event listeners from backend
 async function listenForEvents() {
   await listen('proxy-status', (event: any) => {
-    currentStatus = event.payload;
+    // Handle both enum formats
+    const payload = event.payload;
+    if (payload.Stopped !== undefined) {
+      currentStatus = { Stopped: null };
+    } else if (payload.Starting !== undefined) {
+      currentStatus = { Starting: null };
+    } else if (payload.Running !== undefined) {
+      currentStatus = { Running: payload.Running };
+    } else if (payload.Error !== undefined) {
+      currentStatus = { Error: payload.Error };
+    }
     renderStatus(currentStatus);
     updateProxyButtons();
   });

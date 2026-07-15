@@ -14,6 +14,7 @@ pub const TLS_VERSION_1_2: [u8; 2] = [0x03, 0x03];
 pub const TLS_RANDOM_SIZE: usize = 32;
 pub const TLS_SESSION_ID_SIZE: usize = 32;
 pub const TLS_HMAC_SIZE: usize = 10;
+pub const TLS_SERVER_HELLO: u8 = 0x0B;
 pub const FAKE_HTTP_HEADER: &[u8] = b"GET / HTTP/1.1\r\nHost: dl.google.com\r\nConnection: keep-alive\r\n\r\n";
 pub const FAKE_REQUEST_LENGTH_RANGE: std::ops::Range<usize> = 100..200;
 

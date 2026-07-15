@@ -10,17 +10,6 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [
-      {
-        "title": "stls - ShadowTLS Client",
-        "width": 600,
-        "height": 700,
-        "minWidth": 500,
-        "minHeight": 600,
-        "resizable": true,
-        "visible": false
-      }
-    ],
     "trayIcon": {
       "iconPath": "icons/icon.png",
       "tooltip": "stls - ShadowTLS Client"

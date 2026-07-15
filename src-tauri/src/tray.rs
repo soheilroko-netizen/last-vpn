@@ -7,7 +7,7 @@ use tauri::{
 
 use crate::config::AppConfig;
 
-pub async fn create_tray<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
+pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
     let show = MenuItem::with_id(app, "show", "Show Window", true, None::<&str>)?;
     let start = MenuItem::with_id(app, "start", "Start Proxy", true, None::<&str>)?;
     let stop = MenuItem::with_id(app, "stop", "Stop Proxy", true, None::<&str>)?;
@@ -58,7 +58,7 @@ pub async fn create_tray<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
     Ok(())
 }
 
-pub async fn create_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
+pub fn create_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
     WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
         .title("stls - ShadowTLS Client")
         .inner_size(600.0, 700.0)

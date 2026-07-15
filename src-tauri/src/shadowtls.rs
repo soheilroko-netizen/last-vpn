@@ -20,8 +20,9 @@ use crate::config::{ShadowTLSConfig, ShadowTLSConfigTLS};
 use crate::crypto::{
     hmac_sha1, kdf, random_bytes, verify_hmac,
     TLS_HANDSHAKE, TLS_APPLICATION_DATA, TLS_HMAC_SIZE, TLS_RANDOM_SIZE, TLS_SESSION_ID_SIZE,
-    TLS_VERSION_1_2, FAKE_HTTP_HEADER, FAKE_REQUEST_LENGTH_RANGE,
+    TLS_SERVER_HELLO, TLS_VERSION_1_2, FAKE_HTTP_HEADER, FAKE_REQUEST_LENGTH_RANGE,
 };
+use hkdf::Hkdf;
 
 pub type HmacSha1 = Hmac<Sha1>;
 
@@ -272,7 +273,7 @@ impl ShadowTlsV3Client {
 
     fn parse_server_hello(&mut self, data: &[u8]) -> Result<()> {
         // Basic validation - check it's a ServerHello
-        if data.len() < 6 || data[0] != TLS_HANDSHAKE || data[5] != 0x02 {
+        if data.len() < 6 || data[0] != TLS_HANDSHAKE || data[5] != TLS_SERVER_HELLO {
             bail!("Not a ServerHello");
         }
         
@@ -368,6 +369,31 @@ impl ShadowTlsV3Client {
     }
 }
 
+impl ShadowTlsClient for ShadowTlsV3Client {
+    async fn connect(&mut self) -> Result<()> {
+        ShadowTlsV3Client::connect(self).await
+    }
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        ShadowTlsV3Client::read(self, buf).await
+    }
+    async fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        ShadowTlsV3Client::write(self, buf).await
+    }
+    async fn close(&mut self) -> Result<()> {
+        ShadowTlsV3Client::close(self).await
+    }
+    fn clone_box(&self) -> Box<dyn ShadowTlsClient> {
+        Box::new(Self {
+            config: self.config.clone(),
+            stream: None,
+            send_seq: self.send_seq,
+            recv_seq: self.recv_seq,
+            encrypt_key: self.encrypt_key,
+            decrypt_key: self.decrypt_key,
+        })
+    }
+}
+
 /// ShadowTLS V2 Client (simplified)
 pub struct ShadowTlsV2Client {
     config: ShadowTlsConfig,
@@ -421,6 +447,27 @@ impl ShadowTlsV2Client {
     }
 }
 
+impl ShadowTlsClient for ShadowTlsV2Client {
+    async fn connect(&mut self) -> Result<()> {
+        ShadowTlsV2Client::connect(self).await
+    }
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        ShadowTlsV2Client::read(self, buf).await
+    }
+    async fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        ShadowTlsV2Client::write(self, buf).await
+    }
+    async fn close(&mut self) -> Result<()> {
+        ShadowTlsV2Client::close(self).await
+    }
+    fn clone_box(&self) -> Box<dyn ShadowTlsClient> {
+        Box::new(Self {
+            config: self.config.clone(),
+            stream: None,
+        })
+    }
+}
+
 pub fn create_shadowtls_client(config: ShadowTLSConfig) -> Box<dyn ShadowTlsClient> {
     let stls_config = ShadowTlsConfig::from(config);
     
@@ -437,4 +484,11 @@ pub trait ShadowTlsClient: Send + Sync {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize>;
     async fn write(&mut self, buf: &[u8]) -> Result<usize>;
     async fn close(&mut self) -> Result<()>;
+    fn clone_box(&self) -> Box<dyn ShadowTlsClient>;
+}
+
+impl Clone for Box<dyn ShadowTlsClient> {
+    fn clone(&self) -> Self {
+        self.clone_box()
+    }
 }

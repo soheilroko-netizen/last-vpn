@@ -1,6 +1,5 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
@@ -14,17 +13,6 @@ pub struct Settings {
     pub minimize_to_tray: bool,
     pub log_level: String,
     pub local_socks_port: u16,
-}
-
-impl Settings {
-    pub fn default() -> Self {
-        Self {
-            auto_start: false,
-            minimize_to_tray: true,
-            log_level: "info".to_string(),
-            local_socks_port: 1080,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,10 +78,15 @@ impl Default for Profile {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProxyStatus {
-    pub status: String,
-    pub profile: Option<String>,
-    pub local_port: Option<u16>,
+pub enum ProxyStatus {
+    #[serde(rename = "Stopped")]
+    Stopped,
+    #[serde(rename = "Starting")]
+    Starting,
+    #[serde(rename = "Running")]
+    Running { profile: String, local_port: u16 },
+    #[serde(rename = "Error")]
+    Error { error: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
