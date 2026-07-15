@@ -112,18 +112,24 @@ jobs:
 
       - name: Add mingw bin to PATH (windres for Tauri resource)
         run: |
-          # choco installs windres as x86_64-w64-mingw32-windres.exe; tauri-build's
-          # resolver looks for bare "windres". Copy llvm-windres (from llvm-tools-preview)
-          # to windres.exe so the resolver finds a GNU-compatible resource compiler.
           $cargoBin = "$env:USERPROFILE\.cargo\bin"
           $llvm = Join-Path $cargoBin "llvm-windres.exe"
+          $dest = Join-Path $cargoBin "windres.exe"
           if (Test-Path $llvm) {
-            Copy-Item $llvm (Join-Path $cargoBin "windres.exe") -Force
+            Copy-Item $llvm $dest -Force
             echo "copied llvm-windres -> windres.exe"
           } else {
-            echo "llvm-windres NOT found at $llvm"
+            # fallback: choco's prefixed windres
+            $mingwWindres = (Get-ChildItem -Path C:\ProgramData\chocolatey\lib\mingw -Recurse -Filter x86_64-w64-mingw32-windres.exe -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+            if ($mingwWindres) {
+              Copy-Item $mingwWindres $dest -Force
+              echo "copied $mingwWindres -> windres.exe"
+            } else {
+              echo "ERROR: no windres source found"
+              exit 1
+            }
           }
-          # Also add choco mingw bin (fallback) to PATH
+          # Add mingw bin (for any other mingw tools) to PATH
           $mingw = (Get-ChildItem -Path C:\ProgramData\chocolatey\lib\mingw -Recurse -Filter x86_64-w64-mingw32-windres.exe -ErrorAction SilentlyContinue | Select-Object -First 1).DirectoryName
           if (-not $mingw) { $mingw = "C:\msys64\mingw64\bin" }
           echo "mingw dir: $mingw"
@@ -145,9 +151,9 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: ${{ runner.os }}-cargo-gnu-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-gnu-windres2-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-gnu-
+            ${{ runner.os }}-cargo-gnu-windres2-
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -170,7 +176,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUSTFLAGS: ""
-          WINDRES: llvm-windres
+          WINDRES: ${{ 'C:\\Users\\runneradmin\\.cargo\\bin\\windres.exe' }}
         with:
           args: --target x86_64-pc-windows-gnu
 
