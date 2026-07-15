@@ -1,0 +1,40 @@
+# Cargo
+/target
+**/*.rs.bk
+Cargo.lock
+
+# Node
+/node_modules
+dist
+dist-electron
+build
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tauri
+src-tauri/target
+src-tauri/*.dSYM
+src-tauri/*.app
+src-tauri/*.app/**
+!src-tauri/target/release/bundle/*
+
+# Logs
+*.log
+logs
+
+# Test
+coverage
+.nyc_output
+
+# Environment
+.env
+.env.local
+.env.*.local

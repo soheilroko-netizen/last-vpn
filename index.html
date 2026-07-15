@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>stls - ShadowTLS Client</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/src/styles.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Header -->
+    <header class="header">
+      <div class="flex items-center gap-12">
+        <div class="flex items-center gap-8">
+          <div class="logo">stls</div>
+          <span class="divider"></span>
+        </div>
+        <div class="flex-1"></div>
+        <div id="status-badge" class="status-badge status-stopped">
+          <span class="status-dot"></span>Stopped
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main">
+      <div class="sidebar">
+        <!-- Tabs -->
+        <nav class="tabs">
+          <button class="tab active" data-tab="profiles">Profiles</button>
+          <button class="tab" data-tab="import">Import/Export</button>
+          <button class="tab" data-tab="parse">Parse Input</button>
+        </nav>
+
+        <!-- Profiles Panel -->
+        <div id="panel-profiles" class="tab-panel active">
+          <div class="flex items-center justify-between mb-8">
+            <div class="section-title">Profiles</div>
+            <button id="add-profile-btn" class="btn btn-primary btn-sm">+ Add Profile</button>
+          </div>
+          <div id="profile-list" class="profile-list"></div>
+        </div>
+
+        <!-- Import/Export Panel -->
+        <div id="panel-import" class="tab-panel">
+          <div class="section-title">Import Profiles</div>
+          <div class="mb-16">
+            <input type="file" id="import-btn" accept=".json" class="file-input" style="display: none;">
+            <button class="btn btn-secondary" onclick="document.getElementById('import-btn').click()">Choose JSON File</button>
+            <p class="text-sm mt-8" style="color: var(--text-muted);">Exports profiles as JSON array. Overwrites nothing — just appends.</p>
+          </div>
+          <div class="divider"></div>
+          <div class="section-title">Export Profiles</div>
+          <button id="export-btn" class="btn btn-secondary">Download JSON</button>
+        </div>
+
+        <!-- Parse Panel -->
+        <div id="panel-parse" class="tab-panel">
+          <div class="section-title">Parse Shadowsocks URI</div>
+          <div class="flex gap-8 mb-16">
+            <input type="text" id="ss-uri-input" placeholder="ss://..." class="flex-1 input" spellcheck="false">
+            <button id="parse-ss-btn" class="btn btn-primary">Parse</button>
+          </div>
+          <p class="text-sm" style="color: var(--text-muted);">Auto-fills cipher, password. Server/port ignored (wired to local ShadowTLS).</p>
+
+          <div class="divider mt-16"></div>
+
+          <div class="section-title">Parse ShadowTLS JSON</div>
+          <textarea id="stls-json-input" placeholder='{"server":"...","server_port":443,"version":3,"password":"...","tls":{"enabled":true,"server_name":"dl.google.com"}}' class="input textarea" rows="4"></textarea>
+          <div class="flex gap-8 mt-8">
+            <button id="parse-stls-btn" class="btn btn-primary">Parse</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="divider-vertical"></div>
+
+      <div class="content">
+        <!-- Profile Details -->
+        <div id="profile-details" class="profile-details">
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7A4 4 0 1 1 12 3 4 4 0 0 1 16 7z"/>
+            </svg>
+            <p>Select a profile to view details</p>
+          </div>
+        </div>
+
+        <!-- Proxy Control -->
+        <div class="section-title mt-16">Proxy Control</div>
+        <div class="flex items-center gap-12 mt-8">
+          <button id="btn-start" class="btn btn-primary btn-lg" disabled>Start Proxy</button>
+          <button id="btn-stop" class="btn btn-danger btn-lg" disabled>Stop Proxy</button>
+        </div>
+        <div class="mt-8 p-12" style="background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px;">
+          <div style="font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary);">
+            SOCKS5 Proxy: <strong>127.0.0.1:1080</strong> (or configured port)
+          </div>
+          <div class="mt-4" style="font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);">
+            Chain: App → SOCKS5 (1080) → Shadowsocks → ShadowTLS (1081) → Remote Server
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Profile Modal -->
+  <dialog id="profile-modal" class="modal">
+    <div class="modal-content">
+      <div class="flex items-center justify-between mb-16">
+        <h3 id="modal-title">Add Profile</h3>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('profile-modal').close()">×</button>
+      </div>
+      <form id="profile-form">
+        <div class="grid grid-2">
+          <div class="form-group">
+            <label for="p-name">Profile Name *</label>
+            <input type="text" id="p-name" required placeholder="My Server">
+          </div>
+          <div class="form-group">
+            <label for="p-local-port">SOCKS5 Port *</label>
+            <input type="number" id="p-local-port" required min="1024" max="65535" value="1080">
+          </div>
+        </div>
+
+        <div class="divider"></div>
+        <div class="section-title">Shadowsocks</div>
+        <div class="grid grid-2">
+          <div class="form-group">
+            <label for="p-cipher">Cipher *</label>
+            <select id="p-cipher" required></select>
+          </div>
+          <div class="form-group">
+            <label for="p-ss-password">Password *</label>
+            <input type="password" id="p-ss-password" required placeholder="Base64 or plain password">
+          </div>
+        </div>
+
+        <div class="divider"></div>
+        <div class="section-title">ShadowTLS</div>
+        <div class="grid grid-2">
+          <div class="form-group">
+            <label for="p-stls-server">Server *</label>
+            <input type="text" id="p-stls-server" required placeholder="example.com">
+          </div>
+          <div class="form-group">
+            <label for="p-stls-port">Port *</label>
+            <input type="number" id="p-stls-port" required min="1" max="65535" value="443">
+          </div>
+        </div>
+        <div class="grid grid-2">
+          <div class="form-group">
+            <label for="p-stls-version">Version</label>
+            <select id="p-stls-version">
+              <option value="2">V2</option>
+              <option value="3" selected>V3</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="p-stls-sni">SNI *</label>
+            <input type="text" id="p-stls-sni" required value="dl.google.com" placeholder="dl.google.com">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="p-stls-password">Password *</label>
+          <input type="password" id="p-stls-password" required placeholder="ShadowTLS password">
+        </div>
+
+        <div class="flex justify-end gap-8 mt-16">
+          <button type="button" id="cancel-profile" class="btn btn-secondary">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Profile</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "stls",
+  "version": "0.1.0",
+  "identifier": "net.soheilroko.stls",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "stls - ShadowTLS Client",
+        "width": 600,
+        "height": 700,
+        "minWidth": 500,
+        "minHeight": 600,
+        "resizable": true,
+        "visible": false
+      }
+    ],
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "menu": {
+        "items": [
+          { "id": "show", "label": "Show Window" },
+          { "type": "separator" },
+          { "id": "start", "label": "Start Proxy" },
+          { "id": "stop", "label": "Stop Proxy" },
+          { "type": "separator" },
+          { "id": "quit", "label": "Quit" }
+        ]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.png"],
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine"
+      }
+    }
+  }
+}
