@@ -57,18 +57,12 @@ jobs:
           architecture: ${{ matrix.node_arch }}
           cache: 'npm'
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-          run_install: false
-
       - name: Install frontend dependencies
-        run: pnpm install
+        run: npm ci
         working-directory: ./
 
       - name: Build frontend
-        run: pnpm run build
+        run: npm run build
         working-directory: ./
 
       - name: Build Tauri app
@@ -134,17 +128,11 @@ jobs:
           architecture: x64
           cache: 'npm'
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-          run_install: false
-
       - name: Install frontend dependencies
-        run: pnpm install
+        run: npm ci
 
       - name: Build frontend
-        run: pnpm run build
+        run: npm run build
 
       - name: Build Tauri app (GNU)
         uses: tauri-apps/tauri-action@v0
