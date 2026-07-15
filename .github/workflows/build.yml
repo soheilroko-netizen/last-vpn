@@ -112,12 +112,28 @@ jobs:
 
       - name: Add mingw bin to PATH (windres for Tauri resource)
         run: |
-          $windres = (Get-ChildItem -Path C:\ProgramData\chocolatey\lib\mingw -Recurse -Filter windres.exe -ErrorAction SilentlyContinue | Select-Object -First 1).DirectoryName
-          if (-not $windres) {
-            $windres = "C:\msys64\mingw64\bin"
+          # choco installs windres as x86_64-w64-mingw32-windres.exe; tauri-build's
+          # resolver looks for bare "windres". Copy llvm-windres (from llvm-tools-preview)
+          # to windres.exe so the resolver finds a GNU-compatible resource compiler.
+          $cargoBin = "$env:USERPROFILE\.cargo\bin"
+          $llvm = Join-Path $cargoBin "llvm-windres.exe"
+          if (Test-Path $llvm) {
+            Copy-Item $llvm (Join-Path $cargoBin "windres.exe") -Force
+            echo "copied llvm-windres -> windres.exe"
+          } else {
+            echo "llvm-windres NOT found at $llvm"
           }
-          echo "windres dir: $windres"
-          echo "$windres" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          # Also add choco mingw bin (fallback) to PATH
+          $mingw = (Get-ChildItem -Path C:\ProgramData\chocolatey\lib\mingw -Recurse -Filter x86_64-w64-mingw32-windres.exe -ErrorAction SilentlyContinue | Select-Object -First 1).DirectoryName
+          if (-not $mingw) { $mingw = "C:\msys64\mingw64\bin" }
+          echo "mingw dir: $mingw"
+          echo "$cargoBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "$mingw" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        shell: pwsh
+
+      - name: Verify windres is GNU-compatible
+        run: |
+          windres --version
         shell: pwsh
 
       - name: Cache cargo
