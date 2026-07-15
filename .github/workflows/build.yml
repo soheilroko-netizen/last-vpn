@@ -103,70 +103,25 @@ jobs:
         with:
           toolchain: stable
           targets: x86_64-pc-windows-gnu
-          components: llvm-tools-preview
 
-      - name: Ensure llvm-tools-preview (provides llvm-windres)
-        run: rustup component add llvm-tools-preview
-        shell: bash
+      - name: Install MinGW-w64 toolchain via MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: mingw-w64-x86_64-toolchain
 
-      - name: Install mingw-w64 (provides windres.exe)
+      - name: Add MSYS2 mingw64 bin to PATH (windres for Tauri resource)
         run: |
-          choco install mingw-w64 -y --no-progress
-        shell: cmd
-        continue-on-error: true
-
-      - name: Locate/create windres for Tauri resource (GNU)
-        run: |
-          $cargoBin = "$env:USERPROFILE\.cargo\bin"
-          $dest = Join-Path $cargoBin "windres.exe"
-
-          # Candidate windres locations (in priority order)
-          $candidates = @(
-            (Join-Path $cargoBin "llvm-windres.exe"),
-            "C:\ProgramData\chocolatey\tools\mingw64\bin\windres.exe",
-            "C:\ProgramData\chocolatey\tools\mingw64\bin\x86_64-w64-mingw32-windres.exe",
-            "C:\ProgramData\chocolatey\tools\mingw-w64\mingw64\bin\windres.exe",
-            "C:\msys64\mingw64\bin\windres.exe",
-            "C:\msys64\mingw64\bin\x86_64-w64-mingw32-windres.exe"
-          )
-
-          $found = $null
-          foreach ($c in $candidates) {
-            if (Test-Path $c) { $found = $c; break }
-          }
-
-          # Fallback: recursive search under common roots
-          if (-not $found) {
-            $roots = @(
-              "C:\ProgramData\chocolatey\tools",
-              "C:\ProgramData\chocolatey\lib",
-              "C:\msys64",
-              "$env:USERPROFILE\.rustup",
-              "$env:USERPROFILE\.cargo"
-            )
-            foreach ($r in $roots) {
-              if (Test-Path $r) {
-                $hit = Get-ChildItem -Path $r -Recurse -Include windres.exe,llvm-windres.exe,x86_64-w64-mingw32-windres.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-                if ($hit) { $found = $hit.FullName; break }
-              }
-            }
-          }
-
-          if ($found) {
-            Copy-Item $found $dest -Force
-            echo "copied $found -> $dest"
-          } else {
-            echo "ERROR: no windres found anywhere. Candidates checked:"
-            $candidates | ForEach-Object { echo "  $_" }
-            echo "--- choco mingw install state ---"
-            choco list --local-only 2>$null | Select-String mingw
+          $msys2 = "C:\msys64\mingw64\bin"
+          if (-not (Test-Path "$msys2\windres.exe")) {
+            echo "ERROR: windres.exe not found at $msys2\windres.exe"
+            echo "MSYS2 mingw bin contents:"
+            Get-ChildItem $msys2 -Filter *windres* -ErrorAction SilentlyContinue
             exit 1
           }
-
-          # Add cargo bin (windres.exe + toolchain) and mingw bin to PATH
-          $mingwBin = Split-Path $found
-          echo "$cargoBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          echo "$mingwBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "found windres at $msys2\windres.exe"
+          echo "$msys2" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         shell: pwsh
 
       - name: Verify windres is GNU-compatible
@@ -183,9 +138,9 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: ${{ runner.os }}-cargo-gnu-windres2-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-gnu-msys2-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-gnu-windres2-
+            ${{ runner.os }}-cargo-gnu-msys2-
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -208,7 +163,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUSTFLAGS: ""
-          WINDRES: ${{ 'C:\\Users\\runneradmin\\.cargo\\bin\\windres.exe' }}
+          WINDRES: ${{ 'C:\\msys64\\mingw64\\bin\\windres.exe' }}
         with:
           args: --target x86_64-pc-windows-gnu
 
