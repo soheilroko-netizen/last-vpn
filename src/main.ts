@@ -1,8 +1,6 @@
 import './styles.css';
 import { invoke } from '@tauri-apps/api/core';
-import { listen, emit } from '@tauri-apps/api/event';
-import { open } from '@tauri-apps/plugin-dialog';
-
+import { listen } from '@tauri-apps/api/event';
 interface ShadowsocksConfig {
   cipher: string;
   password: string;
@@ -76,7 +74,7 @@ function initTabs() {
       $$('.tab').forEach(t => t.classList.remove('active'));
       $$('.tab-panel').forEach(p => p.classList.remove('active'));
       tab.classList.add('active');
-      $(`#panel-${tab.dataset.tab}`)?.classList.add('active');
+      ($(`#panel-${(tab as HTMLElement).dataset.tab}`) as HTMLElement)?.classList.add('active');
     });
   });
 }
@@ -141,7 +139,7 @@ function renderProfiles() {
 
   $$('.profile-item').forEach(item => {
     item.addEventListener('click', () => {
-      selectedProfileIndex = parseInt(item.dataset.index!);
+      selectedProfileIndex = parseInt((item as HTMLElement).dataset.index!);
       renderProfiles();
       showProfileDetails(selectedProfileIndex);
     });
