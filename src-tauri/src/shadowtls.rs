@@ -110,7 +110,7 @@ impl ShadowTlsV3Client {
     }
 
     async fn handshake_v3(&mut self, stream: &mut TcpStream) -> Result<()> {
-        let mut client_hello = self.build_client_hello()?;
+        let client_hello = self.build_client_hello()?;
         
         // Write client hello
         stream.write_all(&client_hello).await?;

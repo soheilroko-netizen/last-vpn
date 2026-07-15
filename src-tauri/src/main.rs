@@ -133,7 +133,7 @@ async fn test_connection_cmd(state: tauri::State<'_, AppState>, profile_index: u
         .ok_or("Profile not found")?
         .clone();
 
-    Ok(test_connection(&profile))
+    Ok(test_connection(&profile).await)
 }
 
 #[tauri::command]
