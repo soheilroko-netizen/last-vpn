@@ -24,12 +24,12 @@
     "trayIcon": {
       "iconPath": "icons/icon.png",
       "menu": [
-        { "id": "show", "label": "Show Window" },
-        { "type": "separator" },
-        { "id": "start", "label": "Start Proxy" },
-        { "id": "stop", "label": "Stop Proxy" },
-        { "type": "separator" },
-        { "id": "quit", "label": "Quit" }
+        { "type": "MenuItem", "id": "show", "label": "Show Window" },
+        { "type": "Separator" },
+        { "type": "MenuItem", "id": "start", "label": "Start Proxy" },
+        { "type": "MenuItem", "id": "stop", "label": "Stop Proxy" },
+        { "type": "Separator" },
+        { "type": "MenuItem", "id": "quit", "label": "Quit" }
       ]
     }
   },
