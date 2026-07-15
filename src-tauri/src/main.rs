@@ -12,7 +12,7 @@ mod tray;
 use std::sync::{Arc, Mutex};
 
 use tauri::Manager;
-use tauri_plugin_store::ManagerExt;
+use tauri_plugin_store::StoreExt;
 
 use crate::config::{AppConfig, Profile, ProxyStatus, ShadowTLSConfig, ShadowsocksConfig, TestResult};
 use crate::proxy::{ProxyManager, test_connection};

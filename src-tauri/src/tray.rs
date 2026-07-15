@@ -38,9 +38,10 @@ pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
             }
             _ => {}
         })
-        .on_tray_icon_event(move |app, event| {
+        .on_tray_icon_event(move |tray, event| {
             if let TrayIconEvent::Click { button, button_state, .. } = event {
                 if button == MouseButton::Left && button_state == MouseButtonState::Up {
+                    let app = tray.app_handle();
                     if let Some(window) = app.get_webview_window("main") {
                         let visible = window.is_visible().unwrap_or(false);
                         if visible {

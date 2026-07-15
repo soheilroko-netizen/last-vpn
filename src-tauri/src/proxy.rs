@@ -1,6 +1,8 @@
 use anyhow::{bail, Result};
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tracing::{debug, error, info, warn};
 
@@ -38,12 +40,12 @@ impl ProxyManager {
         let (shutdown_tx, mut shutdown_rx) = mpsc::channel(1);
         
         // Build ShadowTLS config
-        let stls_config = ShadowTlsConfig {
+        let stls_config = ShadowTLSConfig {
             server: profile.shadowtls.server.clone(),
             server_port: profile.shadowtls.server_port,
             version: profile.shadowtls.version,
             password: profile.shadowtls.password.clone(),
-            tls: crate::shadowtls::ShadowTlsConfigTLS {
+            tls: crate::config::ShadowTLSConfigTLS {
                 enabled: profile.shadowtls.tls.enabled,
                 server_name: profile.shadowtls.tls.server_name.clone(),
                 insecure: profile.shadowtls.tls.insecure,
@@ -78,7 +80,7 @@ impl ProxyManager {
         
         // Spawn ShadowTLS relay task
         let stls_task = tokio::spawn(async move {
-            if let Err(e) = relay_shadowtls(stls_client, ss_port, shutdown_rx).await {
+            if let Err(e) = Self::relay_shadowtls(stls_client, ss_port, shutdown_rx).await {
                 error!("ShadowTLS relay error: {}", e);
             }
         });
@@ -116,7 +118,7 @@ impl ProxyManager {
                     let mut remote_client = client.clone();
 
                     tokio::spawn(async move {
-                        let _ = relay_connection(&mut local_stream, &mut *remote_client).await;
+                        let _ = Self::relay_connection(&mut local_stream, &mut *remote_client).await;
                     });
                 }
             }
@@ -179,26 +181,19 @@ pub async fn test_connection(profile: &Profile) -> TestResult {
     let start = std::time::Instant::now();
     
     // Build ShadowTLS config
-    let stls_config = ShadowTlsConfig {
+    let stls_config = ShadowTLSConfig {
         server: profile.shadowtls.server.clone(),
         server_port: profile.shadowtls.server_port,
         version: profile.shadowtls.version,
         password: profile.shadowtls.password.clone(),
-        tls: crate::shadowtls::ShadowTlsConfigTLS {
+        tls: crate::config::ShadowTLSConfigTLS {
             enabled: profile.shadowtls.tls.enabled,
             server_name: profile.shadowtls.tls.server_name.clone(),
             insecure: profile.shadowtls.tls.insecure,
         },
     };
     
-    let mut client = match create_shadowtls_client(stls_config) {
-        Ok(c) => c,
-        Err(e) => return TestResult {
-            success: false,
-            latency_ms: None,
-            error: Some(format!("ShadowTLS config error: {}", e)),
-        },
-    };
+    let mut client = create_shadowtls_client(stls_config);
     
     if let Err(e) = client.connect().await {
         return TestResult {

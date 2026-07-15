@@ -2,8 +2,10 @@
 // Supports 2022 AEAD ciphers (blake3-aes-128-gcm, blake3-aes-256-gcm, blake3-chacha20-poly1305)
 
 use anyhow::{bail, Context, Result};
-use bytes::{BufMut, BytesMut};
+use bytes::{Buf, BufMut, BytesMut};
 use std::net::SocketAddr;
+use std::sync::Arc;
+use aes_gcm::aead::Aead;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -144,7 +146,6 @@ mod cipher2022 {
     use aes_gcm::{Aes128Gcm, Aes256Gcm, Key, KeyInit, Nonce};
     use chacha20poly1305::{ChaCha20Poly1305, Key as ChaChaKey, Nonce as ChaChaNonce};
     use blake3;
-    use hkdf::Hkdf;
     use sha2::Sha256;
     use zeroize::Zeroize;
 
@@ -311,11 +312,10 @@ mod cipher2022 {
     }
 
     fn derive_key_blake3(password: &str, key_len: usize) -> Result<Vec<u8>> {
-        let hkdf = Hkdf::<blake3::Hasher>::new(None, password.as_bytes());
-        let mut key = vec![0u8; key_len];
-        hkdf.expand(b"ss2022", &mut key)
-            .map_err(|e| anyhow::anyhow!("HKDF failed: {}", e))?;
-        Ok(key)
+        // shadowsocks-rust 2022 derives the PSK via blake3::derive_key (32-byte output),
+        // then truncates for shorter ciphers.
+        let full = blake3::derive_key("shadowsocks 2022", password.as_bytes());
+        Ok(full[..key_len].to_vec())
     }
 
     /// Legacy ciphers
@@ -394,10 +394,9 @@ impl SsStream {
                 if self.read_buffer.len() >= total_len {
                     let mut decrypted = Vec::new();
                     let nonce = self.recv_nonce;
-                    self.increment_nonce(&mut self.recv_nonce);
-                    
                     self.cipher.decrypt(&nonce, &self.read_buffer[2..total_len], &mut decrypted)?;
-                    
+                    Self::increment_nonce(&mut self.recv_nonce);
+
                     self.read_buffer.advance(total_len);
                     
                     let n = decrypted.len().min(buf.len());
@@ -421,7 +420,7 @@ impl SsStream {
             
             let mut encrypted = Vec::new();
             let nonce = self.send_nonce;
-            self.increment_nonce(&mut self.send_nonce);
+            Self::increment_nonce(&mut self.send_nonce);
             
             self.cipher.encrypt(&nonce, chunk, &mut encrypted)?;
             
@@ -436,7 +435,7 @@ impl SsStream {
         Ok(written)
     }
 
-    fn increment_nonce(&self, nonce: &mut [u8; 12]) {
+    fn increment_nonce(nonce: &mut [u8; 12]) {
         for i in (4..12).rev() {
             nonce[i] = nonce[i].wrapping_add(1);
             if nonce[i] != 0 {

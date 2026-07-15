@@ -95,12 +95,12 @@ impl ShadowTlsV3Client {
 
     pub async fn connect(&mut self) -> Result<()> {
         let addr = format!("{}:{}", self.config.server, self.config.server_port);
-        let stream = timeout(Duration::from_secs(10), TcpStream::connect(&addr)).await??;
+        let mut stream = timeout(Duration::from_secs(10), TcpStream::connect(&addr)).await??;
         
         stream.set_nodelay(true)?;
         
         if self.config.version == 3 {
-            self.handshake_v3(&stream).await?;
+            self.handshake_v3(&mut stream).await?;
         } else {
             bail!("Only V3 is supported");
         }
@@ -109,7 +109,7 @@ impl ShadowTlsV3Client {
         Ok(())
     }
 
-    async fn handshake_v3(&mut self, stream: &TcpStream) -> Result<()> {
+    async fn handshake_v3(&mut self, stream: &mut TcpStream) -> Result<()> {
         let mut client_hello = self.build_client_hello()?;
         
         // Write client hello
@@ -311,10 +311,9 @@ impl ShadowTlsV3Client {
     }
 
     pub async fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        let stream = self.stream.as_mut().ok_or_else(|| anyhow::anyhow!("Not connected"))?;
-        
         let mut encrypted = Vec::new();
         self.encrypt_record(buf, &mut encrypted)?;
+        let stream = self.stream.as_mut().ok_or_else(|| anyhow::anyhow!("Not connected"))?;
         
         // Write record header
         let mut header = [0u8; 5];
@@ -331,6 +330,7 @@ impl ShadowTlsV3Client {
 
     fn encrypt_record(&mut self, plaintext: &[u8], out: &mut Vec<u8>) -> Result<()> {
         use aes_gcm::{Aes128Gcm, Key, KeyInit, Nonce};
+        use aes_gcm::aead::Aead;
         
         let cipher = Aes128Gcm::new(Key::<Aes128Gcm>::from_slice(&self.encrypt_key));
         
@@ -347,6 +347,7 @@ impl ShadowTlsV3Client {
 
     fn decrypt_record(&mut self, ciphertext: &[u8], out: &mut Vec<u8>) -> Result<()> {
         use aes_gcm::{Aes128Gcm, Key, KeyInit, Nonce};
+        use aes_gcm::aead::Aead;
         
         let cipher = Aes128Gcm::new(Key::<Aes128Gcm>::from_slice(&self.decrypt_key));
         
@@ -369,6 +370,7 @@ impl ShadowTlsV3Client {
     }
 }
 
+#[async_trait::async_trait]
 impl ShadowTlsClient for ShadowTlsV3Client {
     async fn connect(&mut self) -> Result<()> {
         ShadowTlsV3Client::connect(self).await
@@ -407,26 +409,26 @@ impl ShadowTlsV2Client {
 
     pub async fn connect(&mut self) -> Result<()> {
         let addr = format!("{}:{}", self.config.server, self.config.server_port);
-        let stream = timeout(Duration::from_secs(10), TcpStream::connect(&addr)).await??;
+        let mut stream = timeout(Duration::from_secs(10), TcpStream::connect(&addr)).await??;
         stream.set_nodelay(true)?;
-        
+
         // V2 handshake - simplified
-        self.handshake_v2(&stream).await?;
-        
+        self.handshake_v2(&mut stream).await?;
+
         self.stream = Some(stream);
         Ok(())
     }
 
-    async fn handshake_v2(&mut self, stream: &TcpStream) -> Result<()> {
+    async fn handshake_v2(&mut self, stream: &mut TcpStream) -> Result<()> {
         // V2 uses a simpler handshake with fake HTTP
         let mut hello = Vec::new();
         hello.extend_from_slice(FAKE_HTTP_HEADER);
-        
+
         stream.write_all(&hello).await?;
-        
+
         let mut buf = [0u8; 1024];
         let _ = timeout(Duration::from_secs(5), stream.read(&mut buf)).await??;
-        
+
         Ok(())
     }
 
@@ -447,6 +449,7 @@ impl ShadowTlsV2Client {
     }
 }
 
+#[async_trait::async_trait]
 impl ShadowTlsClient for ShadowTlsV2Client {
     async fn connect(&mut self) -> Result<()> {
         ShadowTlsV2Client::connect(self).await
@@ -469,6 +472,7 @@ impl ShadowTlsClient for ShadowTlsV2Client {
 }
 
 pub fn create_shadowtls_client(config: ShadowTLSConfig) -> Box<dyn ShadowTlsClient> {
+
     let stls_config = ShadowTlsConfig::from(config);
     
     if stls_config.version == 3 {
