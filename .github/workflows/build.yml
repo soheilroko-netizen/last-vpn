@@ -105,10 +105,15 @@ jobs:
           targets: x86_64-pc-windows-gnu
           components: llvm-tools-preview
 
-      - name: Install mingw-w64
+      - name: Ensure llvm-tools-preview (provides llvm-windres)
+        run: rustup component add llvm-tools-preview
+        shell: bash
+
+      - name: Install mingw-w64 (provides windres.exe)
         run: |
-          choco install mingw -y --no-progress
+          choco install mingw-w64 -y --no-progress
         shell: cmd
+        continue-on-error: true
 
       - name: Locate/create windres for Tauri resource (GNU)
         run: |
@@ -120,6 +125,7 @@ jobs:
             (Join-Path $cargoBin "llvm-windres.exe"),
             "C:\ProgramData\chocolatey\tools\mingw64\bin\windres.exe",
             "C:\ProgramData\chocolatey\tools\mingw64\bin\x86_64-w64-mingw32-windres.exe",
+            "C:\ProgramData\chocolatey\tools\mingw-w64\mingw64\bin\windres.exe",
             "C:\msys64\mingw64\bin\windres.exe",
             "C:\msys64\mingw64\bin\x86_64-w64-mingw32-windres.exe"
           )
@@ -131,10 +137,16 @@ jobs:
 
           # Fallback: recursive search under common roots
           if (-not $found) {
-            $roots = @("C:\ProgramData\chocolatey\tools", "C:\ProgramData\chocolatey\lib", "C:\msys64")
+            $roots = @(
+              "C:\ProgramData\chocolatey\tools",
+              "C:\ProgramData\chocolatey\lib",
+              "C:\msys64",
+              "$env:USERPROFILE\.rustup",
+              "$env:USERPROFILE\.cargo"
+            )
             foreach ($r in $roots) {
               if (Test-Path $r) {
-                $hit = Get-ChildItem -Path $r -Recurse -Include windres.exe,x86_64-w64-mingw32-windres.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+                $hit = Get-ChildItem -Path $r -Recurse -Include windres.exe,llvm-windres.exe,x86_64-w64-mingw32-windres.exe -ErrorAction SilentlyContinue | Select-Object -First 1
                 if ($hit) { $found = $hit.FullName; break }
               }
             }
