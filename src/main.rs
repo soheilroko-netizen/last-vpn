@@ -12,13 +12,30 @@
 // DEFAULT_CONFIG block below to change servers/passwords.
 
 use directories::ProjectDirs;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+// Optional on-disk profile. Every field is optional: anything you omit falls
+// back to Profile::default(). Put a `profile.toml` next to stls.exe (or pass
+// one with --profile path/to/profile.toml) to change servers without rebuilding.
+#[derive(Debug, Default, Deserialize)]
+struct ProfileFile {
+    ss_method: Option<String>,
+    ss_password: Option<String>,
+    ss_server: Option<String>,
+    ss_port: Option<u16>,
+    stls_server: Option<String>,
+    stls_port: Option<u16>,
+    stls_password: Option<String>,
+    stls_sni: Option<String>,
+    local_addr: Option<String>,
+    local_port: Option<u16>,
+}
 
 // ---------------------------------------------------------------------------
 // Default connection profile (extracted from your nekoray links)
@@ -254,12 +271,131 @@ fn download_sing_box(dir: &Path) -> Result<PathBuf, String> {
     Ok(exe)
 }
 
-// ---------------------------------------------------------------------------
-// Main
-// ---------------------------------------------------------------------------
+// Merge an optional profile.toml over the baked-in defaults.
+fn load_profile(path: Option<&Path>) -> Result<Profile, String> {
+    let mut p = Profile::default();
+    let pf_path = match path {
+        Some(p) => p.to_path_buf(),
+        None => std::env::current_exe()
+            .map(|e| e.with_file_name("profile.toml"))
+            .unwrap_or_else(|_| PathBuf::from("profile.toml")),
+    };
+    if pf_path.exists() {
+        let txt = fs::read_to_string(&pf_path).map_err(|e| format!("read {}: {e}", pf_path.display()))?;
+        let pf: ProfileFile = toml::from_str(&txt).map_err(|e| format!("parse {}: {e}", pf_path.display()))?;
+        if let Some(v) = pf.ss_method { p.ss_method = v; }
+        if let Some(v) = pf.ss_password { p.ss_password = v; }
+        if let Some(v) = pf.ss_server { p.ss_server = v; }
+        if let Some(v) = pf.ss_port { p.ss_port = v; }
+        if let Some(v) = pf.stls_server { p.stls_server = v; }
+        if let Some(v) = pf.stls_port { p.stls_port = v; }
+        if let Some(v) = pf.stls_password { p.stls_password = v; }
+        if let Some(v) = pf.stls_sni { p.stls_sni = v; }
+        if let Some(v) = pf.local_addr { p.local_addr = v; }
+        if let Some(v) = pf.local_port { p.local_port = v; }
+        println!("[stls] loaded profile override: {}", pf_path.display());
+    }
+    Ok(p)
+}
+
+// Write the effective profile to profile.toml (so you can see the format).
+fn write_profile_sample(p: &Profile, path: &Path) -> Result<(), String> {
+    let pf = ProfileFile {
+        ss_method: Some(p.ss_method.clone()),
+        ss_password: Some(p.ss_password.clone()),
+        ss_server: Some(p.ss_server.clone()),
+        ss_port: Some(p.ss_port),
+        stls_server: Some(p.stls_server.clone()),
+        stls_port: Some(p.stls_port),
+        stls_password: Some(p.stls_password.clone()),
+        stls_sni: Some(p.stls_sni.clone()),
+        local_addr: Some(p.local_addr.clone()),
+        local_port: Some(p.local_port),
+    };
+    let txt = toml::to_string_pretty(&pf).map_err(|e| format!("serialize profile: {e}"))?;
+    fs::write(path, txt).map_err(|e| format!("write {}: {e}", path.display()))?;
+    println!("[stls] wrote profile template: {}", path.display());
+    Ok(())
+}
 fn main() {
-    println!("stls v{VERSION} — ShadowTLS + Shadowsocks chain proxy");
-    let p = Profile::default();
+    // --- minimal arg parsing (no external crate needed) ---
+    let mut profile_arg: Option<PathBuf> = None;
+    let mut write_profile = false;
+    let mut show_help = false;
+    let mut bad_arg: Option<String> = None;
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--profile" => {
+                if let Some(v) = args.get(i + 1) {
+                    profile_arg = Some(PathBuf::from(v));
+                    i += 2;
+                    continue;
+                }
+                bad_arg = Some("--profile needs a path".into());
+            }
+            "--write-profile" => {
+                write_profile = true;
+                i += 1;
+            }
+            "-h" | "--help" => {
+                show_help = true;
+                i += 1;
+            }
+            other => {
+                bad_arg = Some(format!("unknown argument: {other}"));
+            }
+        }
+        i += 1;
+    }
+
+    if show_help {
+        println!("stls v{VERSION} — ShadowTLS + Shadowsocks chain proxy (sing-box powered)\n");
+        println!("USAGE:");
+        println!("  stls.exe                 run with default or profile.toml next to the exe");
+        println!("  stls.exe --profile P     load servers/ports from TOML file P");
+        println!("  stls.exe --write-profile write the current profile to profile.toml and exit");
+        println!("  stls.exe --help          show this help\n");
+        println!("profile.toml example (all fields optional):");
+        println!("  ss_server   = \"ns.baft.uk\"");
+        println!("  ss_port     = 8380");
+        println!("  ss_password = \"tE+3/qlN/orCZRVUutWouysZ8BQs4RWzq46WK6CDGG4=\"");
+        println!("  stls_server = \"ns.baft.uk\"");
+        println!("  stls_port   = 8553");
+        println!("  stls_password = \"y2lachetore\"");
+        println!("  stls_sni    = \"dl.google.com\"");
+        println!("  local_addr  = \"127.0.0.1\"");
+        println!("  local_port  = 1080");
+        return;
+    }
+
+    if let Some(msg) = bad_arg {
+        eprintln!("[stls] {msg}");
+        eprintln!("[stls] run `stls.exe --help` for usage");
+        std::process::exit(2);
+    }
+
+    // Resolve the profile first (so --write-profile can dump it).
+    let p = match load_profile(profile_arg.as_deref()) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("[stls] ERROR: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    if write_profile {
+        let out = profile_arg
+            .unwrap_or_else(|| PathBuf::from("profile.toml"));
+        match write_profile_sample(&p, &out) {
+            Ok(()) => std::process::exit(0),
+            Err(e) => {
+                eprintln!("[stls] ERROR: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
 
     let dir = config_dir();
     println!("[stls] config dir: {}", dir.display());

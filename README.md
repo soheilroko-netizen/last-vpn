@@ -48,8 +48,30 @@ git tag v4.0.0 && git push origin v4.0.0
 
 ## Edit the config
 
-Open `src/main.rs`, change the `Profile::default()` values (servers, ports,
-passwords, SOCKS port), rebuild.
+You don't need to rebuild to change servers/ports. Two ways:
+
+**1. `profile.toml` (no rebuild, recommended)**
+
+Copy `profile.toml.example` to `profile.toml` next to `stls.exe`, edit the
+values you want, and re-run. Every field is optional — anything you omit falls
+back to the built-in defaults.
+
+```bash
+# dump the current effective profile to profile.toml so you can see the format:
+stls.exe --write-profile
+```
+
+**2. Command-line**
+
+```bash
+stls.exe --profile C:\path\to\profile.toml   # load a specific file
+stls.exe --help                               # show usage + field names
+```
+
+**3. Build-time defaults**
+
+To bake different defaults in, edit `Profile::default()` in `src/main.rs` and
+rebuild (or push a tag to trigger GitHub Actions).
 
 ## License
 

@@ -30,6 +30,10 @@ src-tauri/*.app/**
 *.log
 logs
 
+# User profile (may contain real server passwords — never commit)
+/profile.toml
+profile.toml
+
 # Test
 coverage
 .nyc_output
