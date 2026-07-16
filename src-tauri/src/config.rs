@@ -8,10 +8,11 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub server_address: String,
-    pub server_port: u16,
-    pub password: String,
-    pub shadowtls_password: String,
-    pub shadowtls_sni: String,
+    pub ss_port: u16,
+    pub ss_password: String,
+    pub stls_port: u16,
+    pub stls_password: String,
+    pub stls_sni: String,
     pub socks5_port: u16,
 }
 
@@ -19,10 +20,11 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             server_address: "ns.baft.uk".to_string(),
-            server_port: 5353,
-            password: "baft123".to_string(),
-            shadowtls_password: "shahabshahab".to_string(),
-            shadowtls_sni: "dl.google.com".to_string(),
+            ss_port: 8380,
+            ss_password: "tE+3/qlN/orCZRVUutWouysZ8BQs4RWzq46WK6CDGG4=".to_string(),
+            stls_port: 8553,
+            stls_password: "y2lachetore".to_string(),
+            stls_sni: "dl.google.com".to_string(),
             socks5_port: 1080,
         }
     }

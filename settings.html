@@ -19,23 +19,28 @@
           </div>
 
           <div class="form-group">
-            <label for="server_port">Server Port</label>
-            <input type="number" id="server_port" name="server_port" placeholder="5353" min="1" max="65535" required />
+            <label for="ss_port">Shadowsocks Port</label>
+            <input type="number" id="ss_port" name="ss_port" placeholder="8380" min="1" max="65535" required />
           </div>
 
           <div class="form-group">
-            <label for="password">Shadowsocks Password</label>
-            <input type="password" id="password" name="password" placeholder="baft123" required />
+            <label for="ss_password">Shadowsocks Password</label>
+            <input type="password" id="ss_password" name="ss_password" placeholder="tE+3/qlN/..." required />
           </div>
 
           <div class="form-group">
-            <label for="shadowtls_password">ShadowTLS Password</label>
-            <input type="password" id="shadowtls_password" name="shadowtls_password" placeholder="shahabshahab" required />
+            <label for="stls_port">ShadowTLS Port</label>
+            <input type="number" id="stls_port" name="stls_port" placeholder="8553" min="1" max="65535" required />
           </div>
 
           <div class="form-group">
-            <label for="shadowtls_sni">ShadowTLS SNI (Server Name)</label>
-            <input type="text" id="shadowtls_sni" name="shadowtls_sni" placeholder="dl.google.com" required />
+            <label for="stls_password">ShadowTLS Password</label>
+            <input type="password" id="stls_password" name="stls_password" placeholder="y2lachetore" required />
+          </div>
+
+          <div class="form-group">
+            <label for="stls_sni">ShadowTLS SNI (Server Name)</label>
+            <input type="text" id="stls_sni" name="stls_sni" placeholder="dl.google.com" required />
           </div>
 
           <div class="form-group">

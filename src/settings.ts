@@ -3,10 +3,11 @@ import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 
 interface Config {
   server_address: string;
-  server_port: number;
-  password: string;
-  shadowtls_password: string;
-  shadowtls_sni: string;
+  ss_port: number;
+  ss_password: string;
+  stls_port: number;
+  stls_password: string;
+  stls_sni: string;
   socks5_port: number;
 }
 
@@ -14,10 +15,11 @@ async function loadConfig() {
   try {
     const config = await invoke<Config>('get_config');
     (document.getElementById('server_address') as HTMLInputElement).value = config.server_address;
-    (document.getElementById('server_port') as HTMLInputElement).value = config.server_port.toString();
-    (document.getElementById('password') as HTMLInputElement).value = config.password;
-    (document.getElementById('shadowtls_password') as HTMLInputElement).value = config.shadowtls_password;
-    (document.getElementById('shadowtls_sni') as HTMLInputElement).value = config.shadowtls_sni;
+    (document.getElementById('ss_port') as HTMLInputElement).value = config.ss_port.toString();
+    (document.getElementById('ss_password') as HTMLInputElement).value = config.ss_password;
+    (document.getElementById('stls_port') as HTMLInputElement).value = config.stls_port.toString();
+    (document.getElementById('stls_password') as HTMLInputElement).value = config.stls_password;
+    (document.getElementById('stls_sni') as HTMLInputElement).value = config.stls_sni;
     (document.getElementById('socks5_port') as HTMLInputElement).value = config.socks5_port.toString();
   } catch (err) {
     showMessage('Failed to load config: ' + err, 'error');
@@ -29,10 +31,11 @@ async function saveConfig(event: Event) {
   
   const config: Config = {
     server_address: (document.getElementById('server_address') as HTMLInputElement).value,
-    server_port: parseInt((document.getElementById('server_port') as HTMLInputElement).value),
-    password: (document.getElementById('password') as HTMLInputElement).value,
-    shadowtls_password: (document.getElementById('shadowtls_password') as HTMLInputElement).value,
-    shadowtls_sni: (document.getElementById('shadowtls_sni') as HTMLInputElement).value,
+    ss_port: parseInt((document.getElementById('ss_port') as HTMLInputElement).value),
+    ss_password: (document.getElementById('ss_password') as HTMLInputElement).value,
+    stls_port: parseInt((document.getElementById('stls_port') as HTMLInputElement).value),
+    stls_password: (document.getElementById('stls_password') as HTMLInputElement).value,
+    stls_sni: (document.getElementById('stls_sni') as HTMLInputElement).value,
     socks5_port: parseInt((document.getElementById('socks5_port') as HTMLInputElement).value),
   };
 
