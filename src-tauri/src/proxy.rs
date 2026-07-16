@@ -205,7 +205,7 @@ impl ProxyManager {
                     password: Some(c.shadowtls_password.clone()),
                     tls: Some(SbTls {
                         enabled: true,
-                        server_name: c.server_address.clone(),
+                        server_name: c.shadowtls_sni.clone(),
                         insecure: false,
                     }),
                     detour: None,

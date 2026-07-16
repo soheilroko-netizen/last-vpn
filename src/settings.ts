@@ -6,6 +6,7 @@ interface Config {
   server_port: number;
   password: string;
   shadowtls_password: string;
+  shadowtls_sni: string;
   socks5_port: number;
 }
 
@@ -16,6 +17,7 @@ async function loadConfig() {
     (document.getElementById('server_port') as HTMLInputElement).value = config.server_port.toString();
     (document.getElementById('password') as HTMLInputElement).value = config.password;
     (document.getElementById('shadowtls_password') as HTMLInputElement).value = config.shadowtls_password;
+    (document.getElementById('shadowtls_sni') as HTMLInputElement).value = config.shadowtls_sni;
     (document.getElementById('socks5_port') as HTMLInputElement).value = config.socks5_port.toString();
   } catch (err) {
     showMessage('Failed to load config: ' + err, 'error');
@@ -30,6 +32,7 @@ async function saveConfig(event: Event) {
     server_port: parseInt((document.getElementById('server_port') as HTMLInputElement).value),
     password: (document.getElementById('password') as HTMLInputElement).value,
     shadowtls_password: (document.getElementById('shadowtls_password') as HTMLInputElement).value,
+    shadowtls_sni: (document.getElementById('shadowtls_sni') as HTMLInputElement).value,
     socks5_port: parseInt((document.getElementById('socks5_port') as HTMLInputElement).value),
   };
 

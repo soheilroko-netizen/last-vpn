@@ -11,6 +11,7 @@ pub struct Config {
     pub server_port: u16,
     pub password: String,
     pub shadowtls_password: String,
+    pub shadowtls_sni: String,
     pub socks5_port: u16,
 }
 
@@ -21,6 +22,7 @@ impl Default for Config {
             server_port: 5353,
             password: "baft123".to_string(),
             shadowtls_password: "shahabshahab".to_string(),
+            shadowtls_sni: "dl.google.com".to_string(),
             socks5_port: 1080,
         }
     }
