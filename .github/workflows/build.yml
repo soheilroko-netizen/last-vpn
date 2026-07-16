@@ -24,7 +24,7 @@ jobs:
         run: npm install -g pnpm
 
       - name: Install frontend dependencies
-        run: pnpm install
+        run: pnpm install --no-frozen-lockfile
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
