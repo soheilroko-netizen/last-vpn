@@ -114,7 +114,21 @@ impl ProxyManager {
     }
 
     pub fn is_running(&self) -> bool {
-        self.child.lock().unwrap().is_some()
+        let mut guard = self.child.lock().unwrap();
+        if let Some(child) = guard.as_mut() {
+            // Check if process is actually alive
+            match child.try_wait() {
+                Ok(Some(_)) => {
+                    // Process has exited, clean up
+                    *guard = None;
+                    false
+                }
+                Ok(None) => true,  // Still running
+                Err(_) => false,   // Error checking status
+            }
+        } else {
+            false
+        }
     }
 
     pub fn start(&mut self) -> Result<String> {
