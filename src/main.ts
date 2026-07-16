@@ -60,8 +60,5 @@ function showMessage(text: string, type: 'success' | 'error') {
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-start')?.addEventListener('click', startProxy);
   document.getElementById('btn-stop')?.addEventListener('click', stopProxy);
-  document.getElementById('btn-settings')?.addEventListener('click', () => {
-    window.location.href = 'settings.html';
-  });
   updateStatus();
 });
