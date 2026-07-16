@@ -278,10 +278,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
 
             // Create system tray
-            create_tray(app.handle())?;
+            match create_tray(app.handle()) {
+                Ok(()) => tracing::info!("Tray created successfully"),
+                Err(e) => tracing::error!("Failed to create tray: {}", e),
+            }
 
-            // Create main window (hidden by default)
-            create_main_window(app.handle())?;
+            // Create main window (visible by default for testing)
+            match create_main_window(app.handle()) {
+                Ok(()) => tracing::info!("Main window created successfully"),
+                Err(e) => tracing::error!("Failed to create main window: {}", e),
+            }
 
             // Handle window close event - hide instead of quit
             if let Some(window) = app.get_webview_window("main") {

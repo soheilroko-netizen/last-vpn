@@ -16,10 +16,17 @@ pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
 
     let menu = Menu::with_items(app, &[&show, &separator, &start, &stop, &separator, &quit])?;
 
-    TrayIconBuilder::new()
-        .icon(app.default_window_icon().cloned().unwrap())
+    let icon = app.default_window_icon().cloned();
+    
+    let mut builder = TrayIconBuilder::new()
         .menu(&menu)
-        .tooltip("stls - Disconnected")
+        .tooltip("stls - Disconnected");
+    
+    if let Some(ico) = icon {
+        builder = builder.icon(Some(ico));
+    }
+
+    builder
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "show" => {
                 if let Some(window) = app.get_webview_window("main") {
@@ -65,7 +72,7 @@ pub fn create_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
         .inner_size(600.0, 700.0)
         .min_inner_size(500.0, 600.0)
         .resizable(true)
-        .visible(false)
+        .visible(true)
         .build()?;
 
     Ok(())
