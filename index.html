@@ -43,6 +43,17 @@
         <h1>Settings</h1>
         <p class="subtitle">Configure Server Connection</p>
 
+        <div style="margin-bottom: 20px;">
+          <label for="profile-select" style="display: block; margin-bottom: 8px; font-weight: 500;">Profile:</label>
+          <div style="display: flex; gap: 8px;">
+            <select id="profile-select" style="flex: 1; padding: 8px; border: 1px solid #444; background: #2a2a2a; color: #e0e0e0; border-radius: 4px;">
+              <option value="Default">Default</option>
+            </select>
+            <button type="button" id="btn-new-profile" class="btn btn-secondary" style="padding: 8px 16px;">New</button>
+            <button type="button" id="btn-delete-profile" class="btn btn-secondary" style="padding: 8px 16px;">Delete</button>
+          </div>
+        </div>
+
         <form id="settings-form">
           <div class="form-group">
             <label for="server_address">Server Address</label>
