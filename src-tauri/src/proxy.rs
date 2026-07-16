@@ -131,7 +131,22 @@ impl ProxyManager {
         let cfg_path = self.config_dir.join("config.json");
         fs::write(&cfg_path, &cfg_json)?;
 
-        // Start sing-box
+        // Start sing-box with hidden window on Windows
+        #[cfg(target_os = "windows")]
+        let child = {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            Command::new(&exe)
+                .arg("run")
+                .arg("-c")
+                .arg(&cfg_path)
+                .creation_flags(CREATE_NO_WINDOW)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()?
+        };
+
+        #[cfg(not(target_os = "windows"))]
         let child = Command::new(&exe)
             .arg("run")
             .arg("-c")
