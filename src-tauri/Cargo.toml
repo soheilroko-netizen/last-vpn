@@ -5,10 +5,6 @@ edition = "2021"
 description = "stls - ShadowTLS + Shadowsocks VPN with GUI"
 license = "MIT"
 
-[lib]
-name = "stls_lib"
-crate-type = ["lib", "cdylib", "staticlib"]
-
 [[bin]]
 name = "stls"
 path = "src/main.rs"
