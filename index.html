@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>stls v5</title>
+    <link rel="stylesheet" href="/src/styles.css">
+  </head>
+  <body>
+    <div id="app">
+      <div class="container">
+        <h1>stls v5</h1>
+        <p class="subtitle">ShadowTLS + Shadowsocks Proxy</p>
+        
+        <div class="status-card">
+          <div class="status-indicator" id="status-dot"></div>
+          <span id="status-text">Disconnected</span>
+        </div>
+
+        <div class="server-info">
+          <div class="info-row">
+            <span class="label">Server:</span>
+            <span class="value">ns.baft.uk:8553</span>
+          </div>
+          <div class="info-row">
+            <span class="label">SOCKS5:</span>
+            <span class="value">127.0.0.1:1080</span>
+          </div>
+        </div>
+
+        <div class="controls">
+          <button id="btn-start" class="btn btn-primary">Start</button>
+          <button id="btn-stop" class="btn btn-secondary" disabled>Stop</button>
+        </div>
+
+        <div id="message" class="message"></div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,44 +1,32 @@
-# Cargo
+# Build artifacts
 /target
-**/*.rs.bk
-Cargo.lock
-
-# Node
+/dist
 /node_modules
-dist
-dist-electron
-build
 
-# IDE
-.idea
-.vscode
-*.swp
-*.swo
+# Tauri generated
+src-tauri/target
+src-tauri/gen
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Tauri
-src-tauri/target
-src-tauri/*.dSYM
-src-tauri/*.app
-src-tauri/*.app/**
-!src-tauri/target/release/bundle/*
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
 
-# Logs
-*.log
-logs
-
-# User profile (may contain real server passwords — never commit)
-/profile.toml
+# Config
 profile.toml
+config.json
 
-# Test
-coverage
-.nyc_output
-
-# Environment
-.env
-.env.local
-.env.*.local
+# Package manager
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
