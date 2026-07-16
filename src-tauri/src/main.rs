@@ -10,6 +10,40 @@ mod shadowsocks;
 mod tray;
 
 use std::sync::{Arc, Mutex};
+use std::io::Write;
+use std::panic;
+
+/// Install a panic hook that writes the panic payload + backtrace to a log
+/// file next to the exe, so release builds (no console) don't swallow crashes.
+fn install_crash_logger() {
+    let original = panic::take_hook();
+    panic::set_hook(Box::new(move |info| {
+        let _ = (|| -> std::io::Result<()> {
+            if let Ok(exe) = std::env::current_exe() {
+                if let Some(dir) = exe.parent() {
+                    let log = dir.join("stls_crash.log");
+                    let mut f = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&log)?;
+                    let ts = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    writeln!(f, "=== stls panic @ {ts} ===")?;
+                    writeln!(f, "{info}")?;
+                    if let Some(loc) = info.location() {
+                        writeln!(f, "at {}:{}", loc.file(), loc.line())?;
+                    }
+                    let bt = std::backtrace::Backtrace::force_capture();
+                    writeln!(f, "{bt}")?;
+                }
+            }
+            Ok(())
+        })();
+        original(info);
+    }));
+}
 
 use tauri::Manager;
 use tauri_plugin_store::StoreExt;
@@ -182,6 +216,8 @@ async fn minimize_window(app_handle: tauri::AppHandle) -> Result<(), String> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    install_crash_logger();
+
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_target(false)
