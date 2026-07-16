@@ -1,106 +1,55 @@
-# stls
+# stls v4 — minimal ShadowTLS + Shadowsocks chain proxy (CLI)
 
-User-friendly ShadowTLS client for Windows. Combines Shadowsocks + ShadowTLS into a single system tray application.
+A tiny Rust command-line client that turns your nekoray config into a working
+SOCKS5 proxy on **`127.0.0.1:1080`**.
 
-## Features
+It auto-downloads [`sing-box`](https://sing-box.sagernet.org/), writes the
+chain config, and launches it. No installer, no GUI, no Node — just one `.exe`.
 
-- **Simple UI** - Paste your Shadowsocks URI and ShadowTLS JSON, or enter fields manually
-- **System tray** - Connect/disconnect/status from tray icon
-- **Profile management** - Add, edit, delete, import/export profiles (JSON)
-- **SOCKS5 proxy** - Runs on `127.0.0.1:1080` (configurable)
-- **Shadowsocks 2022** - Supports `2022-blake3-aes-128-gcm`, `2022-blake3-aes-256-gcm`, `2022-blake3-chacha20-poly1305`
-- **ShadowTLS V3** - Fake HTTP/TLS, SNI support, better detection resistance
-- **Portable** - No installer needed, config in `%APPDATA%`
-- **Cross-compiled** - Built via GitHub Actions on Windows runners
-
-## Architecture
+## What it does
 
 ```
-App (SOCKS5 1080) → Shadowsocks Local (1081) → ShadowTLS Client → Remote Server
+Your app → SOCKS5 127.0.0.1:1080
+                → ShadowTLS v3  (ns.baft.uk:8553, fake TLS to dl.google.com)
+                    → Shadowsocks 2022 (ns.baft.uk:8380, blake3-chacha20-poly1305)
 ```
 
-Chain: Your app connects to `127.0.0.1:1080` → Shadowsocks encrypts → forwards to local ShadowTLS on `1081` → ShadowTLS wraps in fake HTTPS → remote ShadowTLS server → Shadowsocks server.
+This is the exact chain from your nekoray export:
 
-## Build
+| Layer | Server | Port | Password | Notes |
+|-------|--------|------|----------|-------|
+| ShadowTLS v3 | `ns.baft.uk` | `8553` | `y2lachetore` | SNI `dl.google.com` |
+| Shadowsocks 2022 | `ns.baft.uk` | `8380` | `tE+3/qlN/orCZRVUutWouysZ8BQs4RWzq46WK6CDGG4=` | `2022-blake3-chacha20-poly1305` |
+| Local SOCKS5 | `127.0.0.1` | `1080` | — | listen address |
+
+## Usage
+
+1. Download `stls.exe` from **Actions → Artifacts** (or a tagged Release).
+2. Run it. On first launch it downloads `sing-box.exe` next to it
+   (into `%APPDATA%\stls\`).
+3. Point your browser / game / app at SOCKS5 `127.0.0.1:1080`.
+4. Press `Ctrl+C` to stop.
+
+> Needs outbound HTTPS to `github.com` (first run, to fetch sing-box) and to
+> `ns.baft.uk` (the proxy itself).
+
+## Build from source (Windows, MSVC)
 
 ```bash
-# Windows (MSVC)
 cargo build --release --target x86_64-pc-windows-msvc
-
-# Windows (GNU)
-cargo build --release --target x86_64-pc-windows-gnu
+# result: target\x86_64-pc-windows-msvc\release\stls.exe
 ```
 
 Or push a tag to trigger GitHub Actions:
+
 ```bash
-git tag v0.1.0 && git push origin v0.1.0
+git tag v4.0.0 && git push origin v4.0.0
 ```
 
-Artifacts: `.exe` (portable) and `.msi` (installer) in Actions → Artifacts or Releases.
+## Edit the config
 
-## Configuration
-
-Config stored at `%APPDATA%\stls\config.json`:
-
-```json
-{
-  "profiles": [
-    {
-      "name": "My Server",
-      "shadowsocks": {
-        "cipher": "2022-blake3-chacha20-poly1305",
-        "password": "base64password==",
-        "server": "auto",
-        "port": 0
-      },
-      "shadowtls": {
-        "server": "example.com",
-        "server_port": 443,
-        "version": 3,
-        "password": "shadowtls-password",
-        "tls": {
-          "enabled": true,
-          "server_name": "dl.google.com",
-          "insecure": false
-        }
-      },
-      "local_socks_port": 1080
-    }
-  ],
-  "settings": {
-    "auto_start": false,
-    "minimize_to_tray": true,
-    "log_level": "info"
-  }
-}
-```
-
-## Input Formats
-
-### Shadowsocks URI (SIP002)
-```
-ss://2022-blake3-chacha20-poly1305:password@server:port#name
-```
-
-### ShadowTLS JSON (sing-box/Xray style)
-```json
-{
-  "type": "shadowtls",
-  "server": "example.com",
-  "server_port": 443,
-  "version": 3,
-  "password": "password",
-  "tls": {
-    "enabled": true,
-    "server_name": "dl.google.com"
-  }
-}
-```
-
-## Requirements
-
-- Windows 10 1809+ (for WebView2)
-- Visual C++ Redistributable (for MSVC build)
+Open `src/main.rs`, change the `Profile::default()` values (servers, ports,
+passwords, SOCKS port), rebuild.
 
 ## License
 
