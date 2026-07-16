@@ -4,7 +4,10 @@
 use std::sync::Mutex;
 use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
 
+mod config;
 mod proxy;
+
+use config::Config;
 use proxy::ProxyManager;
 
 struct AppState {
@@ -27,6 +30,17 @@ fn start_proxy(state: State<AppState>) -> Result<String, String> {
 fn stop_proxy(state: State<AppState>) -> Result<String, String> {
     let mut proxy = state.proxy.lock().unwrap();
     proxy.stop().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_config() -> Result<Config, String> {
+    Config::load().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn save_config(config: Config) -> Result<String, String> {
+    config.save().map_err(|e| e.to_string())?;
+    Ok("Configuration saved".to_string())
 }
 
 fn create_main_window(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
@@ -55,6 +69,8 @@ fn main() {
             get_status,
             start_proxy,
             stop_proxy,
+            get_config,
+            save_config,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");

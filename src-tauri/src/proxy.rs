@@ -1,5 +1,6 @@
 // proxy.rs - sing-box proxy manager
 use anyhow::{bail, Result};
+use crate::config::Config;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -93,11 +94,12 @@ struct SbTls {
 pub struct ProxyManager {
     child: Arc<Mutex<Option<Child>>>,
     config_dir: PathBuf,
-    profile: Profile,
+    config: Config,
 }
 
 impl ProxyManager {
     pub fn new() -> Result<Self> {
+        let config = Config::load()?;
         let config_dir = ProjectDirs::from("", "", "stls")
             .map(|d| d.config_dir().to_path_buf())
             .unwrap_or_else(|| PathBuf::from("."));
@@ -107,7 +109,7 @@ impl ProxyManager {
         Ok(ProxyManager {
             child: Arc::new(Mutex::new(None)),
             config_dir,
-            profile: Profile::default(),
+            config,
         })
     }
 
@@ -140,7 +142,7 @@ impl ProxyManager {
 
         *self.child.lock().unwrap() = Some(child);
         
-        Ok(format!("Proxy started: SOCKS5 {}:{}", self.profile.local_addr, self.profile.local_port))
+        Ok(format!("Proxy started: SOCKS5 127.0.0.1:{}", self.config.socks5_port))
     }
 
     pub fn stop(&mut self) -> Result<String> {
@@ -154,7 +156,7 @@ impl ProxyManager {
     }
 
     fn build_config(&self) -> SbConfig {
-        let p = &self.profile;
+        let c = &self.config;
         SbConfig {
             log: SbLog {
                 disabled: false,
@@ -164,17 +166,17 @@ impl ProxyManager {
             inbounds: vec![SbInbound {
                 typ: "socks".into(),
                 tag: "socks-in".into(),
-                listen: p.local_addr.clone(),
-                listen_port: p.local_port,
+                listen: "127.0.0.1".into(),
+                listen_port: c.socks5_port,
             }],
             outbounds: vec![
                 SbOutbound {
                     typ: "shadowsocks".into(),
                     tag: "ss-out".into(),
-                    server: Some(p.ss_server.clone()),
-                    server_port: Some(p.ss_port),
-                    method: Some(p.ss_method.clone()),
-                    password: Some(p.ss_password.clone()),
+                    server: Some(c.server_address.clone()),
+                    server_port: Some(c.server_port),
+                    method: Some("2022-blake3-chacha20-poly1305".into()),
+                    password: Some(c.password.clone()),
                     version: None,
                     tls: None,
                     detour: Some("shadowtls-out".into()),
@@ -182,13 +184,13 @@ impl ProxyManager {
                 SbOutbound {
                     typ: "shadowtls".into(),
                     tag: "shadowtls-out".into(),
-                    server: Some(p.stls_server.clone()),
-                    server_port: Some(p.stls_port),
+                    server: Some(c.server_address.clone()),
+                    server_port: Some(c.server_port),
                     version: Some(3),
-                    password: Some(p.stls_password.clone()),
+                    password: Some(c.shadowtls_password.clone()),
                     tls: Some(SbTls {
                         enabled: true,
-                        server_name: p.stls_sni.clone(),
+                        server_name: c.server_address.clone(),
                         insecure: false,
                     }),
                     detour: None,

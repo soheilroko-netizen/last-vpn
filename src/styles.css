@@ -119,8 +119,41 @@ h1 {
 
 .controls {
   display: flex;
-  gap: 12px;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.settings-form {
+  width: 100%;
+  margin-top: 20px;
+}
+
+.form-group {
   margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 6px;
+  color: #e2e8f0;
+}
+
+.form-group input {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: #e2e8f0;
+  transition: border-color 0.2s;
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: #e94560;
 }
 
 .btn {
