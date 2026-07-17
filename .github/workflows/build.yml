@@ -1,10 +1,10 @@
-name: Build stls v5
+name: Build dakal-tls
 
 on:
   push:
-    branches: [v5]
+    branches: [main]
   pull_request:
-    branches: [v5]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -49,7 +49,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: stls-v5-windows
+          name: dakal-tls-windows
           path: |
             src-tauri/target/release/bundle/**/*.exe
             src-tauri/target/release/bundle/**/*.msi
