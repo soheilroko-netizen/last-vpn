@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -209,11 +209,31 @@ fn sing_box_exe(dir: &Path) -> PathBuf {
     dir.join("sing-box.exe")
 }
 
+/// Find bundled sing-box or return download code
+fn get_bundled_or_download(dir: &Path) -> Result<PathBuf, String> {
+    // Check bundled next to binary (when distributed as .exe)
+    if let Ok(exe_dir) = std::env::current_exe() {
+        let bundled = exe_dir.parent().unwrap_or(&PathBuf::from("."))
+            .join("bin").join("sing-box.exe");
+        if bundled.exists() {
+            println!("[stls] using bundled sing-box: {}", bundled.display());
+            return Ok(bundled);
+        }
+    }
+    
+    // Check bundled in ./bin/ relative to cwd
+    let bundled = PathBuf::from("bin").join("sing-box.exe");
+    if bundled.exists() {
+        println!("[stls] using bundled sing-box: {}", bundled.display());
+        return Ok(bundled);
+    }
+    
+    // Fall back to downloading
+    download_sing_box(dir)
+}
+
 fn download_sing_box(dir: &Path) -> Result<PathBuf, String> {
     let exe = sing_box_exe(dir);
-    if exe.exists() {
-        return Ok(exe);
-    }
     fs::create_dir_all(dir).map_err(|e| format!("create config dir: {e}"))?;
 
     // Resolve latest stable version tag from GitHub API.
@@ -400,8 +420,8 @@ fn main() {
     let dir = config_dir();
     println!("[stls] config dir: {}", dir.display());
 
-    // Ensure sing-box binary.
-    let exe = match download_sing_box(&dir) {
+    // Ensure sing-box binary (check bundled first, then download if needed)
+    let exe = match get_bundled_or_download(&dir) {
         Ok(e) => e,
         Err(e) => {
             eprintln!("[stls] ERROR: could not obtain sing-box: {e}");

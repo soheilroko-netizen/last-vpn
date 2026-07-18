@@ -1,55 +1,30 @@
-# stls v5 - GUI Version
+# I've removed the Tauri GUI and restored the CLI-only version.
 
-ShadowTLS + Shadowsocks proxy client with graphical interface.
-
-## Features
-
-- **GUI Interface** - Clean, modern desktop UI
-- **Start/Stop Controls** - One-click proxy management
-- **Connection Status** - Visual indicator (connected/disconnected)
-- **Auto-download** - Automatically fetches latest sing-box binary
-- **Windows Native** - Built with Tauri (Rust + Web frontend)
-
-## What's New in v5
-
-- Added graphical user interface
-- System tray integration (planned for v5.1)
-- Profile management UI (planned for v6)
-- TUN/VPN mode (planned for v7)
-
-## Download
-
-Download the latest release from the [Releases](https://github.com/soheilroko-netizen/stls/releases) page:
-- `stls_5.0.0_x64_en-US.msi` - Windows installer
-- `stls_5.0.0_x64-setup.exe` - Portable executable
+## What Changed
+- Stripped all Tauri UI code
+- Removed index.html, settings.html, src-tauri/
+- Clean CLI cargo project with embedded sing-box support
+- Updated workflow to download and bundle sing-box as a static asset
 
 ## Usage
-
-1. Run `stls.exe`
-2. Click **Start** to connect
-3. Configure your apps to use SOCKS5 proxy: `127.0.0.1:1080`
-4. Click **Stop** to disconnect
-
-## Default Server
-
-- Server: `ns.baft.uk:8553`
-- SOCKS5: `127.0.0.1:1080`
-- Protocol: ShadowTLS v3 + Shadowsocks 2022
-
-## Build from Source
-
-Requires: Rust, Node.js 22+, pnpm
-
 ```bash
-git clone https://github.com/soheilroko-netizen/stls.git
-cd stls
-git checkout v5
-pnpm install
-pnpm tauri build
+# Build (with bundled sing-box)
+cargo build --release
+
+# Run for the first time (downloads sing-box if not bundled)
+./target/release/stls.exe
+
+# With profile.toml (next to the .exe)
+./target/release/stls.exe --profile profile.toml
+
+# Write profile
+target/release/stls.exe --write-profile profile.toml
 ```
 
-Binary will be in `src-tauri/target/release/bundle/`
+## New Build Workflow
+1. Downloads sing-box from GitHub releases (Windows-only)
+2. Bundles it into `bin/sing-box.exe`
+3. Builds `stls.exe` with the bundled binary
+4. Releases both executables together
 
-## License
-
-MIT
+Now it's a self-contained CLI client that ships with its dependencies.

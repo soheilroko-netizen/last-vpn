@@ -1,55 +1,74 @@
-name: Build dakal-tls
+name: Build stls CLI with bundled sing-box
 
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
-  build-windows:
+  download-sing-box:
     runs-on: windows-latest
-    
+    outputs:
+      url: ${{ steps.download.outputs.download_url }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Download sing-box
+        id: download
+        run: |
+          $url="https://github.com/SagerNet/sing-box/releases/latest/download/sing-box-windows-amd64.zip"
+          Invoke-WebRequest -Uri $url -OutFile "sing-box.zip"
+          echo "download_url=$(Get-Location)/sing-box.zip" >> $env:GITHUB_OUTPUT
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          node-version: '22'
+          name: sing-box
+          path: sing-box.zip
 
-      - name: Install pnpm
-        run: npm install -g pnpm@8
+  build:
+    needs: download-sing-box
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Install frontend dependencies
-        run: pnpm install --no-frozen-lockfile --ignore-scripts=false
+      - name: Download sing-box
+        uses: actions/download-artifact@v4
+        with:
+          name: sing-box
+          path: bin/
+
+      - name: Extract sing-box
+        working-directory: bin
+        run: |-
+          powershell -Command "
+          Expand-Archive -Path sing-box.zip -DestinationPath .
+          Remove-Item 'sing-box.zip' -Force
+          "
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
 
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
+      - name: Cache cargo
+        uses: actions/cache@v4
         with:
-          workspaces: src-tauri
+          path: ~/.cargo
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build frontend
-        run: pnpm build
+      - name: Build release
+        run: |
+          cargo build --release
+          echo "stls binaries: $(ls -la target/release/)"
 
-      - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0.5
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tauriScript: pnpm tauri
-
-      - name: Upload artifacts
+      - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dakal-tls-windows
+          name: stls-release
           path: |
-            src-tauri/target/release/bundle/**/*.exe
-            src-tauri/target/release/bundle/**/*.msi
+            target/release/stls.exe
+            bin/sing-box.exe
+            target/release/deps/*.dll

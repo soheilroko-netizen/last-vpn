@@ -1,9 +1,14 @@
+# stls - ShadowTLS + Shadowsocks CLI client
+# Pure Rust implementation, binary distribution with embedded sing-box
+
 [package]
 name = "stls"
-version = "4.0.0"
+version = "5.0.0"
 edition = "2021"
-description = "stls - minimal ShadowTLS + Shadowsocks chain proxy client (CLI)"
-license = "MIT"
+
+[[bin]]
+name = "stls"
+path = "src/main.rs"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -12,8 +17,7 @@ toml = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 zip = "2"
 directories = "5"
-ctrlc = "3"
+anyhow = "1"
 
-[[bin]]
-name = "stls"
-path = "src/main.rs"
+# Optional: embed sing-box binary for offline use
+# Place sing-box binaries in ./bin/ directory during build
