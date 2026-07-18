@@ -211,21 +211,35 @@ fn sing_box_exe(dir: &Path) -> PathBuf {
 
 /// Find bundled sing-box or return download code
 fn get_bundled_or_download(dir: &Path) -> Result<PathBuf, String> {
-    // Check bundled next to binary (when distributed as .exe)
-    if let Ok(exe_dir) = std::env::current_exe() {
-        let bundled = exe_dir.parent().unwrap_or(&PathBuf::from("."))
-            .join("bin").join("sing-box.exe");
+    // Check 1: bundled next to the EXE (primary location for releases)
+    if let Ok(exe_path) = std::env::current_exe() {
+        let exe_dir = exe_path.parent().unwrap_or(&PathBuf::from("."));
+        let bundled = exe_dir.join("sing-box.exe");
         if bundled.exists() {
             println!("[stls] using bundled sing-box: {}", bundled.display());
             return Ok(bundled);
         }
     }
     
-    // Check bundled in ./bin/ relative to cwd
+    // Check 2: bundled in ./bin/ relative to current working directory (for dev builds)
     let bundled = PathBuf::from("bin").join("sing-box.exe");
     if bundled.exists() {
         println!("[stls] using bundled sing-box: {}", bundled.display());
         return Ok(bundled);
+    }
+    
+    // Check 3: bundled in current working directory (for extracted artifacts)
+    let bundled = PathBuf::from("sing-box.exe");
+    if bundled.exists() {
+        println!("[stls] using bundled sing-box: {}", bundled.display());
+        return Ok(bundled);
+    }
+    
+    // Check 4: cached in config directory
+    let cached = dir.join("sing-box.exe");
+    if cached.exists() {
+        println!("[stls] using cached sing-box: {}", cached.display());
+        return Ok(cached);
     }
     
     // Fall back to downloading
