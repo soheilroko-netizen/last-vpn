@@ -70,10 +70,28 @@ fn switch_profile(name: String) -> Result<String, String> {
     Ok(format!("Switched to profile '{}'", name))
 }
 
+#[tauri::command]
+fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(existing) = app.get_webview_window("settings") {
+        let _ = existing.show();
+        let _ = existing.set_focus();
+        return Ok(());
+    }
+    let settings = WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
+        .title("dakal-tls Settings")
+        .inner_size(480.0, 560.0)
+        .resizable(false)
+        .center()
+        .build()
+        .map_err(|e| e.to_string())?;
+    let _ = settings.set_always_on_top(true);
+    Ok(())
+}
+
 fn create_main_window(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-        .title("stls v5")
-        .inner_size(500.0, 400.0)
+        .title("dakal-tls")
+        .inner_size(480.0, 420.0)
         .resizable(false)
         .build()?;
     Ok(())
@@ -102,6 +120,7 @@ fn main() {
             add_profile,
             delete_profile,
             switch_profile,
+            open_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");

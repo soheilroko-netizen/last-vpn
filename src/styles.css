@@ -234,6 +234,56 @@ h1 {
   opacity: 0.5;
 }
 
+/* ===== Titlebar (macOS style) ===== */
+.titlebar {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  background: #0c121c;
+  border-bottom: 1px solid var(--border);
+  gap: 8px;
+}
+.window-dots { display: flex; gap: 6px; }
+.window-dots .dot { width: 10px; height: 10px; border-radius: 50%; }
+.window-dots .red { background: #ff5f57; }
+.window-dots .yellow { background: #febc2e; }
+.window-dots .green { background: #28c840; }
+.titlebar-text {
+  flex: 1; text-align: center; color: var(--muted); font-size: 12px; font-weight: 500;
+}
+
+/* ===== Shield + Logo ===== */
+.logo-section { text-align: center; margin-bottom: 20px; }
+.shield-icon { font-size: 36px; margin-bottom: 4px; }
+.logo-section h1 { font-size: 22px; font-weight: 700; text-align: center; background: linear-gradient(135deg, #fff 0%, #94a3b8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 4px; }
+.logo-section .subtitle { text-align: center; color: var(--muted); font-size: 12px; }
+
+/* ===== Info grid 2x2 ===== */
+.info-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;
+}
+.info-item {
+  background: var(--card-hover); border: 1px solid var(--border); border-radius: 10px; padding: 12px;
+}
+.info-item .label {
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--muted); margin-bottom: 4px; font-family: var(--mono);
+}
+.info-item .value {
+  font-size: 13px; color: var(--fg); font-weight: 500; font-family: var(--mono);
+}
+
+/* ===== Tray info ===== */
+.tray-info {
+  margin-top: 16px; padding: 10px 14px; background: var(--card-hover);
+  border: 1px solid var(--border); border-radius: 8px;
+  display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px;
+}
+.badge-green {
+  margin-left: auto; background: var(--success); color: #fff;
+  font-size: 10px; padding: 2px 8px; border-radius: 20px; font-weight: 600;
+}
+
 /* ===== Message toast ===== */
 .message {
   text-align: center;
