@@ -18,6 +18,7 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 zip = "2"
 directories = "5"
 anyhow = "1"
+ctrlc = "3"
 
 # Optional: embed sing-box binary for offline use
 # Place sing-box binaries in ./bin/ directory during build

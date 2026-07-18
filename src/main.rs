@@ -16,14 +16,14 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // Optional on-disk profile. Every field is optional: anything you omit falls
 // back to Profile::default(). Put a `profile.toml` next to stls.exe (or pass
 // one with --profile path/to/profile.toml) to change servers without rebuilding.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 struct ProfileFile {
     ss_method: Option<String>,
     ss_password: Option<String>,
