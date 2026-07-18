@@ -72,21 +72,10 @@ fn switch_profile(name: String) -> Result<String, String> {
 
 fn create_main_window(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-        .title("stls v5")
+        .title("stls v2")
         .inner_size(500.0, 400.0)
-        .resizable(false)
-        .build()?;
-    Ok(())
-}
-
-#[tauri::command]
-fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
-    tauri::WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
-        .title("stls v2 Settings")
-        .inner_size(600.0, 500.0)
         .resizable(true)
-        .build()
-        .map_err(|e| e.to_string())?;
+        .build()?;
     Ok(())
 }
 
@@ -113,7 +102,6 @@ fn main() {
             add_profile,
             delete_profile,
             switch_profile,
-            open_settings_window,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");

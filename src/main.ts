@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 interface Config {
   server_address: string;
@@ -20,14 +21,27 @@ interface ProfileStore {
   active_profile: string;
 }
 
-// View switching — Settings opens in its own window
-function showMainView() {
+// View switching — settings shown in-place; main window resized to fit
+const MAIN_W = 500, MAIN_H = 400;
+const SETTINGS_W = 560, SETTINGS_H = 720;
+
+async function setWindowSize(w: number, h: number) {
+  try {
+    await getCurrentWindow().setSize({ type: 'Logical', width: w, height: h });
+  } catch { /* dev/no perm — ignore */ }
+}
+
+async function showMainView() {
   document.getElementById('main-view')!.style.display = 'block';
   document.getElementById('settings-view')!.style.display = 'none';
+  await setWindowSize(MAIN_W, MAIN_H);
 }
 
 async function showSettingsView() {
-  await invoke('open_settings_window');
+  document.getElementById('main-view')!.style.display = 'none';
+  document.getElementById('settings-view')!.style.display = 'block';
+  await setWindowSize(SETTINGS_W, SETTINGS_H);
+  loadProfiles();
 }
 
 async function updateStatus() {
