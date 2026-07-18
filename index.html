@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>stls v5</title>
+    <link rel="stylesheet" href="/src/styles.css">
+  </head>
+  <body>
+    <div id="app">
+      <!-- Main View -->
+      <div id="main-view" class="container">
+        <h1>stls v5</h1>
+        <p class="subtitle">ShadowTLS + Shadowsocks Proxy</p>
+        
+        <div class="status-card">
+          <div class="status-indicator" id="status-dot"></div>
+          <span id="status-text">Disconnected</span>
+        </div>
+
+        <div class="server-info">
+          <div class="info-row">
+            <span class="label">Server:</span>
+            <span class="value">ns.baft.uk:8553</span>
+          </div>
+          <div class="info-row">
+            <span class="label">SOCKS5:</span>
+            <span class="value">127.0.0.1:1080</span>
+          </div>
+        </div>
+
+        <div class="controls">
+          <button id="btn-start" class="btn btn-primary">Start</button>
+          <button id="btn-stop" class="btn btn-secondary" disabled>Stop</button>
+          <button id="btn-settings" class="btn btn-secondary">Settings</button>
+        </div>
+
+        <div id="message" class="message"></div>
+      </div>
+
+      <!-- Settings View (hidden by default) -->
+      <div id="settings-view" class="container" style="display: none;">
+        <h1>Settings</h1>
+        <p class="subtitle">Configure Server Connection</p>
+
+        <div style="margin-bottom: 20px;">
+          <label for="profile-select" style="display: block; margin-bottom: 8px; font-weight: 500;">Profile:</label>
+          <div style="display: flex; gap: 8px;">
+            <select id="profile-select" style="flex: 1; padding: 8px; border: 1px solid #444; background: #2a2a2a; color: #e0e0e0; border-radius: 4px;">
+              <option value="Default">Default</option>
+            </select>
+            <button type="button" id="btn-new-profile" class="btn btn-secondary" style="padding: 8px 16px;">New</button>
+            <button type="button" id="btn-delete-profile" class="btn btn-secondary" style="padding: 8px 16px;">Delete</button>
+          </div>
+        </div>
+
+        <form id="settings-form">
+          <div class="form-group">
+            <label for="server_address">Server Address</label>
+            <input type="text" id="server_address" name="server_address" placeholder="ns.baft.uk" required />
+          </div>
+
+          <div class="form-group">
+            <label for="ss_port">Shadowsocks Port</label>
+            <input type="number" id="ss_port" name="ss_port" placeholder="8380" min="1" max="65535" required />
+          </div>
+
+          <div class="form-group">
+            <label for="ss_password">Shadowsocks Password</label>
+            <input type="password" id="ss_password" name="ss_password" placeholder="tE+3/qlN/..." required />
+          </div>
+
+          <div class="form-group">
+            <label for="stls_port">ShadowTLS Port</label>
+            <input type="number" id="stls_port" name="stls_port" placeholder="8553" min="1" max="65535" required />
+          </div>
+
+          <div class="form-group">
+            <label for="stls_password">ShadowTLS Password</label>
+            <input type="password" id="stls_password" name="stls_password" placeholder="y2lachetore" required />
+          </div>
+
+          <div class="form-group">
+            <label for="stls_sni">ShadowTLS SNI (Server Name)</label>
+            <input type="text" id="stls_sni" name="stls_sni" placeholder="dl.google.com" required />
+          </div>
+
+          <div class="form-group">
+            <label for="socks5_port">SOCKS5 Local Port</label>
+            <input type="number" id="socks5_port" name="socks5_port" placeholder="1080" min="1" max="65535" required />
+          </div>
+
+          <div class="controls">
+            <button type="submit" class="btn btn-primary">Save</button>
+            <button type="button" id="btn-back" class="btn btn-secondary">Back</button>
+          </div>
+
+          <div id="settings-message" class="message"></div>
+        </form>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

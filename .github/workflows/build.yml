@@ -1,63 +1,105 @@
-name: Build stls CLI with bundled sing-box
+name: Build stls v2 (Tauri GUI + bundled sing-box)
 
 on:
   push:
-    branches: [main]
+    branches: [v2]
+  pull_request:
+    branches: [v2]
   workflow_dispatch:
 
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Download sing-box
+      # ---------------------------------------------------------------
+      # 1. Download sing-box and place it at src-tauri/bin/sing-box.exe
+      #    so Tauri bundles it inside the MSI / NSIS installer via the
+      #    `resources` field in tauri.conf.json. This eliminates the
+      #    auto-download on first launch: sing-box.exe already lives
+      #    beside stls.exe after the user installs.
+      # ---------------------------------------------------------------
+      - name: Download sing-box (Windows x86_64)
         shell: pwsh
         run: |
-          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/SagerNet/sing-box/releases/latest" -Headers @{ "User-Agent" = "stls" }
+          $release = Invoke-RestMethod `
+            -Uri "https://api.github.com/repos/SagerNet/sing-box/releases/latest" `
+            -Headers @{ "User-Agent" = "stls" }
           $tag = $release.tag_name
-          $assetName = "sing-box-$($tag.TrimStart('v'))-windows-amd64.zip"
+          $version = $tag.TrimStart('v')
+          $assetName = "sing-box-$version-windows-amd64.zip"
           $asset = $release.assets | Where-Object { $_.name -eq $assetName } | Select-Object -First 1
-          if (-not $asset) { throw "Asset $assetName not found in release $tag" }
+          if (-not $asset) {
+            throw "Asset $assetName not found in release $tag"
+          }
           Write-Host "Downloading $($asset.name) from $($asset.browser_download_url)"
           Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "sing-box.zip"
 
-      - name: Extract sing-box (to staging dir)
-        shell: pwsh
-        run: |
-          # Extract to temp, find sing-box.exe
+          # Extract and move sing-box.exe into src-tauri/bin/
+          New-Item -ItemType Directory -Force -Path "src-tauri\bin" | Out-Null
           Expand-Archive -Path "sing-box.zip" -DestinationPath "staged" -Force
-          Remove-Item "sing-box.zip"
+          Remove-Item "sing-box.zip" -Force
           $exe = Get-ChildItem -Path "staged" -Filter "sing-box.exe" -Recurse | Select-Object -First 1
-          if (-not $exe) { throw "sing-box.exe not found in zip" }
+          if (-not $exe) {
+            throw "sing-box.exe not found in extracted zip"
+          }
+          Move-Item $exe.FullName "src-tauri\bin\sing-box.exe" -Force
+          Remove-Item -Recurse -Force "staged"
+          Write-Host "sing-box.exe ready at src-tauri\bin\sing-box.exe"
+          # Sanity check
+          if (-not (Test-Path "src-tauri\bin\sing-box.exe")) {
+            throw "sing-box.exe missing after move"
+          }
+          Get-Item "src-tauri\bin\sing-box.exe" | Select-Object Name, Length, FullName
 
-      - name: Build stls
-        shell: pwsh
-        run: |
-          cargo build --release
+      # ---------------------------------------------------------------
+      # 2. Frontend (pnpm + Vite)
+      # ---------------------------------------------------------------
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
 
-      - name: Bundle sing-box with stls
-        shell: pwsh
-        run: |
-          # Copy sing-box.exe next to stls.exe
-          $stlsDir = Join-Path (Get-Location) "target\release"
-          $stagedExe = Get-ChildItem -Path "staged" -Filter "sing-box.exe" -Recurse | Select-Object -First 1
-          
-          # Copy to release dir
-          Copy-Item $stagedExe.FullName (Join-Path $stlsDir "sing-box.exe") -Force
-          Write-Host "Bundled sing-box.exe to: $(Join-Path $stlsDir 'sing-box.exe')"
-          
-          # List files for action
-          Get-ChildItem -Path $stlsDir -Filter "*.exe" | Format-Table -Auto
-          
-          # Cleanup
-          Remove-Item -Path "staged" -Recurse -Force
+      - name: Install pnpm
+        run: npm install -g pnpm@8
 
-      - name: Upload release artifacts
+      - name: Install frontend dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      # ---------------------------------------------------------------
+      # 3. Tauri build (Rust + NSIS + MSI). tauri-action picks up
+      #    src-tauri/Cargo.toml, runs beforeBuildCommand (pnpm build),
+      #    and bundles `resources: ["bin/sing-box.exe"]` into the
+      #    installers automatically.
+      # ---------------------------------------------------------------
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Build Tauri app (MSI + NSIS, with bundled sing-box.exe)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tauriScript: pnpm tauri
+
+      # ---------------------------------------------------------------
+      # 4. Upload installer artifacts
+      # ---------------------------------------------------------------
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: stls-windows
+          name: stls-v2-windows
           path: |
-            target/release/stls.exe
-            target/release/sing-box.exe
+            src-tauri/target/release/bundle/**/*.exe
+            src-tauri/target/release/bundle/**/*.msi
+          if-no-files-found: error

@@ -1,0 +1,33 @@
+[package]
+name = "stls"
+version = "5.0.0"
+edition = "2021"
+description = "stls - ShadowTLS + Shadowsocks VPN with GUI"
+license = "MIT"
+
+[[bin]]
+name = "stls"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+zip = "2"
+directories = "5"
+anyhow = "1"
+
+# Tauri v2
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-shell = "2"
+tauri-plugin-opener = "2"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+] }

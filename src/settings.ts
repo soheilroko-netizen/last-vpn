@@ -57,13 +57,15 @@ function showMessage(text: string, type: 'success' | 'error') {
   }, 5000);
 }
 
-function closeWindow() {
-  getCurrentWebviewWindow().close();
+function goBack() {
+  const webview = getCurrentWebviewWindow();
+  webview.emit('navigate', { page: 'index.html' });
+  window.location.href = 'index.html';
 }
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('settings-form')?.addEventListener('submit', saveConfig);
-  document.getElementById('btn-back')?.addEventListener('click', closeWindow);
+  document.getElementById('btn-back')?.addEventListener('click', goBack);
   loadConfig();
 });
