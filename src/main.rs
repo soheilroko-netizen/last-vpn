@@ -213,7 +213,8 @@ fn sing_box_exe(dir: &Path) -> PathBuf {
 fn get_bundled_or_download(dir: &Path) -> Result<PathBuf, String> {
     // Check 1: bundled next to the EXE (primary location for releases)
     if let Ok(exe_path) = std::env::current_exe() {
-        let exe_dir = exe_path.parent().unwrap_or(&PathBuf::from("."));
+        let default_dir = PathBuf::from(".");
+        let exe_dir = exe_path.parent().unwrap_or(&default_dir);
         let bundled = exe_dir.join("sing-box.exe");
         if bundled.exists() {
             println!("[stls] using bundled sing-box: {}", bundled.display());
