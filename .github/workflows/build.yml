@@ -6,47 +6,34 @@ on:
   workflow_dispatch:
 
 jobs:
-  download-sing-box:
-    runs-on: windows-latest
-    outputs:
-      url: ${{ steps.download.outputs.download_url }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Download sing-box
-        id: download
-        run: |
-          $url="https://github.com/SagerNet/sing-box/releases/latest/download/sing-box-windows-amd64.zip"
-          Invoke-WebRequest -Uri $url -OutFile "sing-box.zip"
-          echo "download_url=$(Get-Location)/sing-box.zip" >> $env:GITHUB_OUTPUT
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: sing-box
-          path: sing-box.zip
-
   build:
-    needs: download-sing-box
     runs-on: windows-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Download sing-box
-        uses: actions/download-artifact@v4
-        with:
-          name: sing-box
-          path: bin/
+        shell: pwsh
+        run: |
+          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/SagerNet/sing-box/releases/latest" -Headers @{ "User-Agent" = "stls" }
+          $tag = $release.tag_name
+          $assetName = "sing-box-$($tag.TrimStart('v'))-windows-amd64.zip"
+          $asset = $release.assets | Where-Object { $_.name -eq $assetName } | Select-Object -First 1
+          if (-not $asset) { throw "Asset $assetName not found in release $tag" }
+          Write-Host "Downloading $($asset.name) from $($asset.browser_download_url)"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "sing-box.zip"
 
       - name: Extract sing-box
-        working-directory: bin
-        run: |-
-          powershell -Command "
-          Expand-Archive -Path sing-box.zip -DestinationPath .
-          Remove-Item 'sing-box.zip' -Force
-          "
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "bin" | Out-Null
+          Expand-Archive -Path "sing-box.zip" -DestinationPath "bin" -Force
+          Remove-Item "sing-box.zip" -Force
+          $exe = Get-ChildItem -Path "bin" -Filter "sing-box.exe" -Recurse | Select-Object -First 1
+          if (-not $exe) { throw "sing-box.exe not found in extracted zip" }
+          if ($exe.FullName -ne "bin\sing-box.exe") {
+            Move-Item $exe.FullName "bin\sing-box.exe" -Force
+          }
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -56,19 +43,19 @@ jobs:
       - name: Cache cargo
         uses: actions/cache@v4
         with:
-          path: ~/.cargo
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build release
-        run: |
-          cargo build --release
-          echo "stls binaries: $(ls -la target/release/)"
+        run: cargo build --release
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: stls-release
+          name: stls-windows
           path: |
             target/release/stls.exe
             bin/sing-box.exe
-            target/release/deps/*.dll
