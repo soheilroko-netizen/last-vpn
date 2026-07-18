@@ -20,16 +20,14 @@ interface ProfileStore {
   active_profile: string;
 }
 
-// View switching
+// View switching — Settings opens in its own window
 function showMainView() {
   document.getElementById('main-view')!.style.display = 'block';
   document.getElementById('settings-view')!.style.display = 'none';
 }
 
-function showSettingsView() {
-  document.getElementById('main-view')!.style.display = 'none';
-  document.getElementById('settings-view')!.style.display = 'block';
-  loadProfiles();
+async function showSettingsView() {
+  await invoke('open_settings_window');
 }
 
 async function updateStatus() {

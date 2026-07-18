@@ -216,3 +216,50 @@ h1 {
   color: var(--error);
   border: 1px solid var(--error);
 }
+
+/* Settings window — wider so all parameters fit without fullscreen */
+.settings-container {
+  width: 560px;
+}
+
+.profile-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 20px;
+  padding: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.profile-bar label {
+  font-weight: 500;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.profile-bar select {
+  flex: 1;
+  padding: 8px 10px;
+  background: #1e293b;
+  color: #e2e8f0;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.profile-bar button {
+  padding: 8px 14px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.2s;
+}
+
+.profile-bar button:hover {
+  background: var(--border);
+}

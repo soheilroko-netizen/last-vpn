@@ -79,6 +79,17 @@ fn create_main_window(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
+#[tauri::command]
+fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
+    tauri::WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
+        .title("stls v2 Settings")
+        .inner_size(600.0, 500.0)
+        .resizable(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn main() {
     let proxy_manager = ProxyManager::new().expect("Failed to init proxy manager");
     
@@ -102,6 +113,7 @@ fn main() {
             add_profile,
             delete_profile,
             switch_profile,
+            open_settings_window,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");

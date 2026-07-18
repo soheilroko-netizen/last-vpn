@@ -3,15 +3,25 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Settings - stls v5</title>
+    <title>stls v2 Settings</title>
     <link rel="stylesheet" href="/src/styles.css">
   </head>
   <body>
     <div id="app">
-      <div class="container">
+      <div class="container settings-container">
         <h1>Settings</h1>
         <p class="subtitle">Configure connection settings</p>
-        
+
+        <!-- Profile selector -->
+        <div class="profile-bar">
+          <label for="profile-select">Profile:</label>
+          <select id="profile-select">
+            <option value="Default">Default</option>
+          </select>
+          <button type="button" id="btn-new-profile">New</button>
+          <button type="button" id="btn-delete-profile">Delete</button>
+        </div>
+
         <form id="settings-form" class="settings-form">
           <div class="form-group">
             <label for="server_address">Server Address</label>
@@ -49,8 +59,8 @@
           </div>
 
           <div class="controls">
-            <button type="submit" class="btn btn-primary">Save Settings</button>
-            <button type="button" id="btn-back" class="btn btn-secondary">Back</button>
+            <button type="submit" class="btn btn-primary">Save</button>
+            <button type="button" id="btn-back" class="btn btn-secondary">Close</button>
           </div>
         </form>
 
