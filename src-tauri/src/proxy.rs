@@ -86,7 +86,7 @@ struct SbDnsServer {
 
 #[derive(Serialize)]
 struct SbDnsRule {
-    outbound: String,
+    action: String,
     server: String,
 }
 
@@ -131,12 +131,6 @@ struct SbInbound {
     strict_route: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stack: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sniff: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sniff_override_destination: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    dns_strategy: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -372,9 +366,6 @@ impl ProxyManager {
                 auto_route: None,
                 strict_route: None,
                 stack: None,
-                sniff: None,
-                sniff_override_destination: None,
-                dns_strategy: None,
             }],
             outbounds: self.common_outbounds(),
             route: None,
@@ -421,7 +412,7 @@ impl ProxyManager {
                 ],
                 rules: Some(vec![
                     SbDnsRule {
-                        outbound: "any".into(),
+                        action: "route".into(),
                         server: "dns-remote".into(),
                     },
                 ]),
@@ -438,32 +429,10 @@ impl ProxyManager {
                 auto_route: Some(true),
                 strict_route: Some(true),
                 stack: Some("system".into()),
-                sniff: Some(true),
-                sniff_override_destination: Some(false),
-                dns_strategy: Some("prefer_ipv4".into()),
             }],
-            outbounds: {
-                let mut obs = self.common_outbounds();
-                obs.push(SbOutbound {
-                    typ: "dns".into(),
-                    tag: "dns-out".into(),
-                    server: None,
-                    server_port: None,
-                    method: None,
-                    password: None,
-                    version: None,
-                    tls: None,
-                    detour: None,
-                });
-                obs
-            },
+            outbounds: self.common_outbounds(),
             route: Some(SbRoute {
                 rules: Some(vec![
-                    SbRouteRule {
-                        protocol: Some("dns".into()),
-                        ip_cidr: None,
-                        outbound: "dns-out".into(),
-                    },
                     SbRouteRule {
                         protocol: None,
                         ip_cidr: Some(bypass_cidrs),
@@ -654,7 +623,7 @@ mod tests {
                     },
                 ],
                 rules: Some(vec![SbDnsRule {
-                    outbound: "any".into(),
+                    action: "route".into(),
                     server: "dns-remote".into(),
                 }]),
                 strategy: Some("prefer_ipv4".into()),
