@@ -65,17 +65,25 @@ struct SbLog {
 #[derive(Serialize)]
 struct SbDns {
     servers: Vec<SbDnsServer>,
-    rules: Vec<SbDnsRule>,
-    strategy: String,
-    disable_cache: bool,
-    disable_expire: bool,
-    independent_cache: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rules: Option<Vec<SbDnsRule>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    strategy: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    independent_cache: Option<bool>,
 }
 
 #[derive(Serialize)]
 struct SbDnsServer {
     tag: String,
-    address: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    server: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    server_port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transport: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    address: Option<String>, // special: dhcp://dns
     #[serde(skip_serializing_if = "Option::is_none")]
     detour: Option<String>,
 }
@@ -241,6 +249,24 @@ impl ProxyManager {
         let cfg_path = self.config_dir.join("config.json");
         fs::write(&cfg_path, &cfg_json)?;
 
+        // Validate config before launch
+        let check_output = Command::new(&exe)
+            .arg("check")
+            .arg("-c")
+            .arg(&cfg_path)
+            .output()
+            .context("failed to run sing-box check")?;
+        if !check_output.status.success() {
+            let err_text = String::from_utf8_lossy(&check_output.stderr);
+            let out_text = String::from_utf8_lossy(&check_output.stdout);
+            bail!(
+                "Config validation failed:\n{}{}\nConfig: {}",
+                err_text.trim(),
+                out_text.trim(),
+                cfg_path.display()
+            );
+        }
+
         let log_path = self.config_dir.join("sing-box.log");
         let log_file = fs::File::create(&log_path)?;
 
@@ -387,25 +413,29 @@ impl ProxyManager {
                 servers: vec![
                     SbDnsServer {
                         tag: "dns-remote".into(),
-                        address: "tcp://8.8.8.8".into(),
+                        server: Some("8.8.8.8".into()),
+                        server_port: Some(53),
+                        transport: Some("tcp".into()),
+                        address: None,
                         detour: Some("ss-out".into()),
                     },
                     SbDnsServer {
                         tag: "dns-direct".into(),
-                        address: "dhcp://dns".into(),
+                        server: None,
+                        server_port: None,
+                        transport: None,
+                        address: Some("dhcp://dns".into()),
                         detour: Some("direct".into()),
                     },
                 ],
-                rules: vec![
+                rules: Some(vec![
                     SbDnsRule {
                         outbound: "any".into(),
                         server: "dns-remote".into(),
                     },
-                ],
-                strategy: "prefer_ipv4".into(),
-                disable_cache: false,
-                disable_expire: false,
-                independent_cache: true,
+                ]),
+                strategy: Some("prefer_ipv4".into()),
+                independent_cache: Some(true),
             }),
             inbounds: vec![SbInbound {
                 typ: "tun".into(),
@@ -414,11 +444,11 @@ impl ProxyManager {
                 listen_port: None,
                 interface_name: Some("stls-tun".into()),
                 address: Some(vec!["172.19.0.1/30".into()]),
-                mtu: Some(9000),
+                mtu: Some(1400),
                 auto_route: Some(true),
                 strict_route: Some(true),
                 auto_detect_interface: Some(true),
-                stack: Some("mixed".into()),
+                stack: Some("system".into()),
                 sniff: Some(true),
                 sniff_override_destination: Some(false),
                 dns_strategy: Some("prefer_ipv4".into()),
