@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>stls v5</title>
-    <link rel="stylesheet" href="/src/styles.css">
+    <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
     <div id="app">
@@ -12,7 +12,19 @@
       <div id="main-view" class="container">
         <h1>stls v5</h1>
         <p class="subtitle">ShadowTLS + Shadowsocks Proxy</p>
-        
+
+        <!-- Mode selector -->
+        <div class="mode-selector">
+          <label class="mode-option">
+            <input type="radio" name="mode" value="proxy" checked />
+            <span class="mode-label">Proxy</span>
+          </label>
+          <label class="mode-option">
+            <input type="radio" name="mode" value="vpn" />
+            <span class="mode-label">VPN</span>
+          </label>
+        </div>
+
         <div class="status-card">
           <div class="status-indicator" id="status-dot"></div>
           <span id="status-text">Disconnected</span>
@@ -32,25 +44,32 @@
         <div class="controls">
           <button id="btn-start" class="btn btn-primary">Start</button>
           <button id="btn-stop" class="btn btn-secondary" disabled>Stop</button>
-          <button id="btn-settings" class="btn btn-secondary">Settings</button>
+          <button id="btn-settings" class="btn btn-tertiary">Settings</button>
         </div>
 
         <div id="message" class="message"></div>
       </div>
 
       <!-- Settings View (hidden by default) -->
-      <div id="settings-view" class="container" style="display: none;">
+      <div id="settings-view" class="container" style="display: none">
         <h1>Settings</h1>
         <p class="subtitle">Configure Server Connection</p>
 
-        <div style="margin-bottom: 20px;">
-          <label for="profile-select" style="display: block; margin-bottom: 8px; font-weight: 500;">Profile:</label>
-          <div style="display: flex; gap: 8px;">
-            <select id="profile-select" style="flex: 1; padding: 8px; border: 1px solid #444; background: #2a2a2a; color: #e0e0e0; border-radius: 4px;">
+        <div style="margin-bottom: 20px">
+          <label for="profile-select" style="display: block; margin-bottom: 8px; font-weight: 500"
+            >Profile:</label
+          >
+          <div style="display: flex; gap: 8px">
+            <select
+              id="profile-select"
+              style="flex: 1; padding: 8px; border: 1px solid #444; background: #2a2a2a; color: #e0e0e0; border-radius: 4px"
+            >
               <option value="Default">Default</option>
             </select>
-            <button type="button" id="btn-new-profile" class="btn btn-secondary" style="padding: 8px 16px;">New</button>
-            <button type="button" id="btn-delete-profile" class="btn btn-secondary" style="padding: 8px 16px;">Delete</button>
+            <button type="button" id="btn-new-profile" class="btn btn-secondary" style="padding: 8px 16px">New</button>
+            <button type="button" id="btn-delete-profile" class="btn btn-secondary" style="padding: 8px 16px">
+              Delete
+            </button>
           </div>
         </div>
 

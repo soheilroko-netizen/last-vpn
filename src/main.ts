@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
 
 interface Config {
   server_address: string;
@@ -9,6 +9,7 @@ interface Config {
   stls_password: string;
   stls_sni: string;
   socks5_port: number;
+  mode: string;
 }
 
 interface Profile {
@@ -21,14 +22,17 @@ interface ProfileStore {
   active_profile: string;
 }
 
-// View switching — settings shown in-place; main window resized to fit
-const MAIN_W = 500, MAIN_H = 400;
-const SETTINGS_W = 560, SETTINGS_H = 720;
+const MAIN_W = 500,
+  MAIN_H = 480;
+const SETTINGS_W = 560,
+  SETTINGS_H = 720;
 
 async function setWindowSize(w: number, h: number) {
   try {
     await getCurrentWindow().setSize({ type: 'Logical', width: w, height: h });
-  } catch { /* dev/no perm — ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 async function showMainView() {
@@ -51,17 +55,22 @@ async function updateStatus() {
     const statusText = document.getElementById('status-text')!;
     const btnStart = document.getElementById('btn-start') as HTMLButtonElement;
     const btnStop = document.getElementById('btn-stop') as HTMLButtonElement;
+    const modeRadios = document.querySelectorAll<HTMLInputElement>(
+      'input[name="mode"]'
+    );
 
     if (isRunning) {
       statusDot.classList.add('connected');
       statusText.textContent = 'Connected';
       btnStart.disabled = true;
       btnStop.disabled = false;
+      modeRadios.forEach((r) => (r.disabled = true));
     } else {
       statusDot.classList.remove('connected');
       statusText.textContent = 'Disconnected';
       btnStart.disabled = false;
       btnStop.disabled = true;
+      modeRadios.forEach((r) => (r.disabled = false));
     }
   } catch (err) {
     showMessage('Error checking status: ' + err, 'error');
@@ -69,6 +78,20 @@ async function updateStatus() {
 }
 
 async function startProxy() {
+  // Save current mode to config before starting
+  const selectedMode = (
+    document.querySelector<HTMLInputElement>('input[name="mode"]:checked')!
+  ).value;
+
+  try {
+    const config = await invoke<Config>('get_config');
+    config.mode = selectedMode;
+    await invoke('save_config', { config });
+  } catch (err) {
+    showMessage('Failed to save mode: ' + err, 'error');
+    return;
+  }
+
   try {
     const msg = await invoke<string>('start_proxy');
     showMessage(msg, 'success');
@@ -104,8 +127,8 @@ async function loadProfiles() {
     const store = await invoke<ProfileStore>('get_profiles');
     const select = document.getElementById('profile-select') as HTMLSelectElement;
     select.innerHTML = '';
-    
-    store.profiles.forEach(profile => {
+
+    store.profiles.forEach((profile) => {
       const option = document.createElement('option');
       option.value = profile.name;
       option.textContent = profile.name;
@@ -114,7 +137,7 @@ async function loadProfiles() {
       }
       select.appendChild(option);
     });
-    
+
     await loadConfig();
   } catch (err) {
     showSettingsMessage('Failed to load profiles: ' + err, 'error');
@@ -124,13 +147,26 @@ async function loadProfiles() {
 async function loadConfig() {
   try {
     const config = await invoke<Config>('get_config');
-    (document.getElementById('server_address') as HTMLInputElement).value = config.server_address;
-    (document.getElementById('ss_port') as HTMLInputElement).value = config.ss_port.toString();
-    (document.getElementById('ss_password') as HTMLInputElement).value = config.ss_password;
-    (document.getElementById('stls_port') as HTMLInputElement).value = config.stls_port.toString();
-    (document.getElementById('stls_password') as HTMLInputElement).value = config.stls_password;
-    (document.getElementById('stls_sni') as HTMLInputElement).value = config.stls_sni;
-    (document.getElementById('socks5_port') as HTMLInputElement).value = config.socks5_port.toString();
+    (document.getElementById('server_address') as HTMLInputElement).value =
+      config.server_address;
+    (document.getElementById('ss_port') as HTMLInputElement).value =
+      config.ss_port.toString();
+    (document.getElementById('ss_password') as HTMLInputElement).value =
+      config.ss_password;
+    (document.getElementById('stls_port') as HTMLInputElement).value =
+      config.stls_port.toString();
+    (document.getElementById('stls_password') as HTMLInputElement).value =
+      config.stls_password;
+    (document.getElementById('stls_sni') as HTMLInputElement).value =
+      config.stls_sni;
+    (document.getElementById('socks5_port') as HTMLInputElement).value =
+      config.socks5_port.toString();
+
+    // Sync mode selector with saved config
+    const modeRadio = document.querySelector<HTMLInputElement>(
+      `input[name="mode"][value="${config.mode}"]`
+    );
+    if (modeRadio) modeRadio.checked = true;
   } catch (err) {
     showSettingsMessage('Failed to load config: ' + err, 'error');
   }
@@ -138,15 +174,28 @@ async function loadConfig() {
 
 async function saveConfig(event: Event) {
   event.preventDefault();
-  
+
   const config: Config = {
-    server_address: (document.getElementById('server_address') as HTMLInputElement).value,
-    ss_port: parseInt((document.getElementById('ss_port') as HTMLInputElement).value),
-    ss_password: (document.getElementById('ss_password') as HTMLInputElement).value,
-    stls_port: parseInt((document.getElementById('stls_port') as HTMLInputElement).value),
-    stls_password: (document.getElementById('stls_password') as HTMLInputElement).value,
+    server_address: (
+      document.getElementById('server_address') as HTMLInputElement
+    ).value,
+    ss_port: parseInt(
+      (document.getElementById('ss_port') as HTMLInputElement).value
+    ),
+    ss_password: (
+      document.getElementById('ss_password') as HTMLInputElement
+    ).value,
+    stls_port: parseInt(
+      (document.getElementById('stls_port') as HTMLInputElement).value
+    ),
+    stls_password: (
+      document.getElementById('stls_password') as HTMLInputElement
+    ).value,
     stls_sni: (document.getElementById('stls_sni') as HTMLInputElement).value,
-    socks5_port: parseInt((document.getElementById('socks5_port') as HTMLInputElement).value),
+    socks5_port: parseInt(
+      (document.getElementById('socks5_port') as HTMLInputElement).value
+    ),
+    mode: (document.querySelector<HTMLInputElement>('input[name="mode"]:checked')?.value) || 'proxy',
   };
 
   try {
@@ -161,7 +210,7 @@ async function saveConfig(event: Event) {
 async function switchProfile() {
   const select = document.getElementById('profile-select') as HTMLSelectElement;
   const profileName = select.value;
-  
+
   try {
     await invoke('switch_profile', { name: profileName });
     await loadConfig();
@@ -174,17 +223,34 @@ async function switchProfile() {
 async function newProfile() {
   const name = prompt('Enter profile name:');
   if (!name || name.trim() === '') return;
-  
+
+  const selectedMode = (
+    document.querySelector<HTMLInputElement>('input[name="mode"]:checked')
+  )?.value || 'proxy';
+
   const config: Config = {
-    server_address: (document.getElementById('server_address') as HTMLInputElement).value,
-    ss_port: parseInt((document.getElementById('ss_port') as HTMLInputElement).value),
-    ss_password: (document.getElementById('ss_password') as HTMLInputElement).value,
-    stls_port: parseInt((document.getElementById('stls_port') as HTMLInputElement).value),
-    stls_password: (document.getElementById('stls_password') as HTMLInputElement).value,
+    server_address: (
+      document.getElementById('server_address') as HTMLInputElement
+    ).value,
+    ss_port: parseInt(
+      (document.getElementById('ss_port') as HTMLInputElement).value
+    ),
+    ss_password: (
+      document.getElementById('ss_password') as HTMLInputElement
+    ).value,
+    stls_port: parseInt(
+      (document.getElementById('stls_port') as HTMLInputElement).value
+    ),
+    stls_password: (
+      document.getElementById('stls_password') as HTMLInputElement
+    ).value,
     stls_sni: (document.getElementById('stls_sni') as HTMLInputElement).value,
-    socks5_port: parseInt((document.getElementById('socks5_port') as HTMLInputElement).value),
+    socks5_port: parseInt(
+      (document.getElementById('socks5_port') as HTMLInputElement).value
+    ),
+    mode: selectedMode,
   };
-  
+
   try {
     await invoke('add_profile', { name: name.trim(), config });
     await loadProfiles();
@@ -197,14 +263,14 @@ async function newProfile() {
 async function deleteProfile() {
   const select = document.getElementById('profile-select') as HTMLSelectElement;
   const profileName = select.value;
-  
+
   if (profileName === 'Default') {
     showSettingsMessage('Cannot delete Default profile', 'error');
     return;
   }
-  
+
   if (!confirm(`Delete profile "${profileName}"?`)) return;
-  
+
   try {
     await invoke('delete_profile', { name: profileName });
     await loadProfiles();
@@ -228,12 +294,22 @@ function showSettingsMessage(text: string, type: 'success' | 'error') {
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-start')?.addEventListener('click', startProxy);
   document.getElementById('btn-stop')?.addEventListener('click', stopProxy);
-  document.getElementById('btn-settings')?.addEventListener('click', showSettingsView);
+  document
+    .getElementById('btn-settings')
+    ?.addEventListener('click', showSettingsView);
   document.getElementById('btn-back')?.addEventListener('click', showMainView);
-  document.getElementById('settings-form')?.addEventListener('submit', saveConfig);
-  document.getElementById('profile-select')?.addEventListener('change', switchProfile);
-  document.getElementById('btn-new-profile')?.addEventListener('click', newProfile);
-  document.getElementById('btn-delete-profile')?.addEventListener('click', deleteProfile);
+  document
+    .getElementById('settings-form')
+    ?.addEventListener('submit', saveConfig);
+  document
+    .getElementById('profile-select')
+    ?.addEventListener('change', switchProfile);
+  document
+    .getElementById('btn-new-profile')
+    ?.addEventListener('click', newProfile);
+  document
+    .getElementById('btn-delete-profile')
+    ?.addEventListener('click', deleteProfile);
   updateStatus();
   setInterval(updateStatus, 2000);
 });

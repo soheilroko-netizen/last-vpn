@@ -14,6 +14,7 @@ pub struct Config {
     pub stls_password: String,
     pub stls_sni: String,
     pub socks5_port: u16,
+    pub mode: String, // "proxy" or "vpn"
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +39,7 @@ impl Default for Config {
             stls_password: "y2lachetore".to_string(),
             stls_sni: "dl.google.com".to_string(),
             socks5_port: 1080,
+            mode: "proxy".to_string(),
         }
     }
 }

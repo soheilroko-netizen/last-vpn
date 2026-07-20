@@ -6,6 +6,7 @@ use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 mod config;
 mod proxy;
+mod sysproxy;
 
 use config::Config;
 use config::ProfileStore;
@@ -52,28 +53,34 @@ fn get_profiles() -> Result<ProfileStore, String> {
 #[tauri::command]
 fn add_profile(name: String, config: Config) -> Result<String, String> {
     let mut store = ProfileStore::load().map_err(|e| e.to_string())?;
-    store.add_profile(name.clone(), config).map_err(|e| e.to_string())?;
+    store
+        .add_profile(name.clone(), config)
+        .map_err(|e| e.to_string())?;
     Ok(format!("Profile '{}' added", name))
 }
 
 #[tauri::command]
 fn delete_profile(name: String) -> Result<String, String> {
     let mut store = ProfileStore::load().map_err(|e| e.to_string())?;
-    store.delete_profile(&name).map_err(|e| e.to_string())?;
+    store
+        .delete_profile(&name)
+        .map_err(|e| e.to_string())?;
     Ok(format!("Profile '{}' deleted", name))
 }
 
 #[tauri::command]
 fn switch_profile(name: String) -> Result<String, String> {
     let mut store = ProfileStore::load().map_err(|e| e.to_string())?;
-    store.switch_profile(&name).map_err(|e| e.to_string())?;
+    store
+        .switch_profile(&name)
+        .map_err(|e| e.to_string())?;
     Ok(format!("Switched to profile '{}'", name))
 }
 
 fn create_main_window(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-        .title("stls v2")
-        .inner_size(500.0, 400.0)
+        .title("stls v5")
+        .inner_size(500.0, 480.0)
         .resizable(true)
         .build()?;
     Ok(())
@@ -81,7 +88,7 @@ fn create_main_window(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::
 
 fn main() {
     let proxy_manager = ProxyManager::new().expect("Failed to init proxy manager");
-    
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())

@@ -156,6 +156,17 @@ h1 {
   border-color: #e94560;
 }
 
+.btn-tertiary {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+
+.btn-tertiary:hover:not(:disabled) {
+  background: var(--border);
+  transform: translateY(-2px);
+}
+
 .btn {
   flex: 1;
   padding: 14px 24px;
@@ -204,6 +215,57 @@ h1 {
   align-items: center;
   justify-content: center;
 }
+
+/* ── Mode Selector ──────────────────────────────────────────────── */
+
+.mode-selector {
+  display: flex;
+  gap: 0;
+  margin-bottom: 20px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.mode-option {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: var(--bg-card);
+  transition: background 0.2s;
+  padding: 10px 0;
+}
+
+.mode-option:not(:last-child) {
+  border-right: 1px solid var(--border);
+}
+
+.mode-option input[type="radio"] {
+  display: none;
+}
+
+.mode-label {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  transition: color 0.2s;
+}
+
+.mode-option input[type="radio"]:checked + .mode-label {
+  color: var(--accent);
+}
+
+.mode-option:has(input[type="radio"]:checked) {
+  background: rgba(233, 69, 96, 0.1);
+}
+
+.mode-option input[disabled] + .mode-label {
+  opacity: 0.4;
+}
+
+/* ── old settings message kept for backwards compat ─────────────── */
 
 .message.success {
   background: rgba(46, 204, 113, 0.2);

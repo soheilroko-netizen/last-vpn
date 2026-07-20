@@ -1,10 +1,12 @@
 // proxy.rs - sing-box proxy manager
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use crate::config::Config;
+use crate::sysproxy;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{Read, Write};
+use std::net::ToSocketAddrs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -40,11 +42,17 @@ impl Default for Profile {
     }
 }
 
+// ── sing-box config structures ─────────────────────────────────────
+
 #[derive(Serialize)]
 struct SbConfig {
     log: SbLog,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dns: Option<SbDns>,
     inbounds: Vec<SbInbound>,
     outbounds: Vec<SbOutbound>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    route: Option<SbRoute>,
 }
 
 #[derive(Serialize)]
@@ -55,12 +63,78 @@ struct SbLog {
 }
 
 #[derive(Serialize)]
+struct SbDns {
+    servers: Vec<SbDnsServer>,
+    rules: Vec<SbDnsRule>,
+    strategy: String,
+    disable_cache: bool,
+    disable_expire: bool,
+    independent_cache: bool,
+}
+
+#[derive(Serialize)]
+struct SbDnsServer {
+    tag: String,
+    address: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detour: Option<String>,
+}
+
+#[derive(Serialize)]
+struct SbDnsRule {
+    outbound: String,
+    server: String,
+}
+
+#[derive(Serialize)]
+struct SbRoute {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rules: Option<Vec<SbRouteRule>>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "final")]
+    final_outbound: Option<String>,
+    auto_detect_interface: bool,
+}
+
+#[derive(Serialize)]
+struct SbRouteRule {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    protocol: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ip_cidr: Option<Vec<String>>,
+    outbound: String,
+}
+
+#[derive(Serialize)]
 struct SbInbound {
     #[serde(rename = "type")]
     typ: String,
     tag: String,
-    listen: String,
-    listen_port: u16,
+    // SOCKS5 fields
+    #[serde(skip_serializing_if = "Option::is_none")]
+    listen: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    listen_port: Option<u16>,
+    // TUN fields
+    #[serde(skip_serializing_if = "Option::is_none")]
+    interface_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    address: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mtu: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auto_route: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    strict_route: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auto_detect_interface: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stack: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sniff: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sniff_override_destination: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dns_strategy: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -95,6 +169,8 @@ pub struct ProxyManager {
     child: Arc<Mutex<Option<Child>>>,
     config_dir: PathBuf,
     config: Config,
+    saved_proxy: Arc<Mutex<Option<sysproxy::SavedProxyState>>>,
+    active_mode: Arc<Mutex<Option<String>>>, // records mode when started
 }
 
 impl ProxyManager {
@@ -103,28 +179,28 @@ impl ProxyManager {
         let config_dir = ProjectDirs::from("", "", "stls")
             .map(|d| d.config_dir().to_path_buf())
             .unwrap_or_else(|| PathBuf::from("."));
-        
+
         fs::create_dir_all(&config_dir)?;
-        
+
         Ok(ProxyManager {
             child: Arc::new(Mutex::new(None)),
             config_dir,
             config,
+            saved_proxy: Arc::new(Mutex::new(None)),
+            active_mode: Arc::new(Mutex::new(None)),
         })
     }
 
     pub fn is_running(&self) -> bool {
         let mut guard = self.child.lock().unwrap();
         if let Some(child) = guard.as_mut() {
-            // Check if process is actually alive
             match child.try_wait() {
                 Ok(Some(_)) => {
-                    // Process has exited, clean up
                     *guard = None;
                     false
                 }
-                Ok(None) => true,  // Still running
-                Err(_) => false,   // Error checking status
+                Ok(None) => true,
+                Err(_) => false,
             }
         } else {
             false
@@ -136,12 +212,18 @@ impl ProxyManager {
             bail!("Proxy already running");
         }
 
-        // Use bundled sing-box if shipped alongside the installer (no network),
-        // otherwise fall back to downloading it once into the config dir.
+        // Re-read config in case user changed mode/settings
+        self.config = Config::load()?;
+
         let exe = self.get_bundled_or_download()?;
 
-        // Write config
-        let cfg = self.build_config();
+        let mode = self.config.mode.clone();
+        let cfg = match mode.as_str() {
+            "proxy" => self.build_proxy_config(),
+            "vpn" => self.build_vpn_config()?,
+            _ => bail!("Unknown mode: {mode}"),
+        };
+
         let cfg_json = serde_json::to_string_pretty(&cfg)?;
         let cfg_path = self.config_dir.join("config.json");
         fs::write(&cfg_path, &cfg_json)?;
@@ -170,22 +252,47 @@ impl ProxyManager {
             .stderr(Stdio::null())
             .spawn()?;
 
+        // Enable system proxy BEFORE marking running
+        if mode == "proxy" {
+            let snapshot = sysproxy::take_snapshot();
+            sysproxy::enable("127.0.0.1", self.config.socks5_port)?;
+            *self.saved_proxy.lock().unwrap() = Some(snapshot);
+        }
+
         *self.child.lock().unwrap() = Some(child);
-        
-        Ok(format!("Proxy started: SOCKS5 127.0.0.1:{}", self.config.socks5_port))
+        *self.active_mode.lock().unwrap() = Some(mode.clone());
+        Ok(format!("{} mode started", mode.to_uppercase()))
     }
 
     pub fn stop(&mut self) -> Result<String> {
+        let mode = self.active_mode.lock().unwrap().take();
+
         let mut guard = self.child.lock().unwrap();
+        let was_running = guard.is_some();
         if let Some(mut child) = guard.take() {
             child.kill()?;
-            Ok("Proxy stopped".into())
-        } else {
-            bail!("Proxy not running")
+            child.wait()?;
         }
+        drop(guard);
+
+        if !was_running {
+            bail!("Not running");
+        }
+
+        // Restore system proxy unconditionally
+        if mode.as_deref() == Some("proxy") {
+            let snapshot = self.saved_proxy.lock().unwrap().take();
+            if let Some(ref saved) = snapshot {
+                let _ = sysproxy::restore(saved);
+            }
+        }
+
+        Ok("Stopped".into())
     }
 
-    fn build_config(&self) -> SbConfig {
+    // ── proxy mode config (existing behaviour) ────────────────────
+
+    fn build_proxy_config(&self) -> SbConfig {
         let c = &self.config;
         SbConfig {
             log: SbLog {
@@ -193,42 +300,94 @@ impl ProxyManager {
                 level: "info".into(),
                 timestamp: true,
             },
+            dns: None,
             inbounds: vec![SbInbound {
                 typ: "socks".into(),
                 tag: "socks-in".into(),
-                listen: "127.0.0.1".into(),
-                listen_port: c.socks5_port,
+                listen: Some("127.0.0.1".into()),
+                listen_port: Some(c.socks5_port),
+                interface_name: None,
+                address: None,
+                mtu: None,
+                auto_route: None,
+                strict_route: None,
+                auto_detect_interface: None,
+                stack: None,
+                sniff: None,
+                sniff_override_destination: None,
+                dns_strategy: None,
             }],
-            outbounds: vec![
-                SbOutbound {
-                    typ: "shadowsocks".into(),
-                    tag: "ss-out".into(),
-                    server: Some(c.server_address.clone()),
-                    server_port: Some(c.ss_port),
-                    method: Some("2022-blake3-chacha20-poly1305".into()),
-                    password: Some(c.ss_password.clone()),
-                    version: None,
-                    tls: None,
-                    detour: Some("shadowtls-out".into()),
-                },
-                SbOutbound {
-                    typ: "shadowtls".into(),
-                    tag: "shadowtls-out".into(),
-                    server: Some(c.server_address.clone()),
-                    server_port: Some(c.stls_port),
-                    version: Some(3),
-                    password: Some(c.stls_password.clone()),
-                    tls: Some(SbTls {
-                        enabled: true,
-                        server_name: c.stls_sni.clone(),
-                        insecure: false,
-                    }),
-                    detour: None,
-                    method: None,
-                },
-                SbOutbound {
-                    typ: "direct".into(),
-                    tag: "direct".into(),
+            outbounds: self.common_outbounds(),
+            route: None,
+        }
+    }
+
+    // ── VPN / TUN mode config ─────────────────────────────────────
+
+    fn build_vpn_config(&self) -> Result<SbConfig> {
+        let c = &self.config;
+
+        // Resolve STLS server IP so we can bypass it from the TUN (prevents loop)
+        let stls_ips: Vec<String> = resolve_hostname(&c.server_address)
+            .context("failed to resolve ShadowTLS server address")?;
+
+        let bypass_cidrs: Vec<String> = if stls_ips.is_empty() {
+            vec!["198.18.0.0/15".into()] // fallback: sing-box reserved
+        } else {
+            stls_ips.iter().map(|ip| format!("{ip}/32")).collect()
+        };
+
+        Ok(SbConfig {
+            log: SbLog {
+                disabled: false,
+                level: "info".into(),
+                timestamp: true,
+            },
+            dns: Some(SbDns {
+                servers: vec![
+                    SbDnsServer {
+                        tag: "dns-remote".into(),
+                        address: "tcp://8.8.8.8".into(),
+                        detour: Some("ss-out".into()),
+                    },
+                    SbDnsServer {
+                        tag: "dns-direct".into(),
+                        address: "dhcp://dns".into(),
+                        detour: Some("direct".into()),
+                    },
+                ],
+                rules: vec![
+                    SbDnsRule {
+                        outbound: "any".into(),
+                        server: "dns-remote".into(),
+                    },
+                ],
+                strategy: "prefer_ipv4".into(),
+                disable_cache: false,
+                disable_expire: false,
+                independent_cache: true,
+            }),
+            inbounds: vec![SbInbound {
+                typ: "tun".into(),
+                tag: "tun-in".into(),
+                listen: None,
+                listen_port: None,
+                interface_name: Some("stls-tun".into()),
+                address: Some(vec!["172.19.0.1/30".into()]),
+                mtu: Some(9000),
+                auto_route: Some(true),
+                strict_route: Some(true),
+                auto_detect_interface: Some(true),
+                stack: Some("mixed".into()),
+                sniff: Some(true),
+                sniff_override_destination: Some(false),
+                dns_strategy: Some("prefer_ipv4".into()),
+            }],
+            outbounds: {
+                let mut obs = self.common_outbounds();
+                obs.push(SbOutbound {
+                    typ: "dns".into(),
+                    tag: "dns-out".into(),
                     server: None,
                     server_port: None,
                     method: None,
@@ -236,55 +395,102 @@ impl ProxyManager {
                     version: None,
                     tls: None,
                     detour: None,
-                },
-            ],
-        }
+                });
+                obs
+            },
+            route: Some(SbRoute {
+                rules: Some(vec![
+                    SbRouteRule {
+                        protocol: Some("dns".into()),
+                        ip_cidr: None,
+                        outbound: "dns-out".into(),
+                    },
+                    SbRouteRule {
+                        protocol: None,
+                        ip_cidr: Some(bypass_cidrs),
+                        outbound: "direct".into(),
+                    },
+                ]),
+                final_outbound: Some("ss-out".into()),
+                auto_detect_interface: true,
+            }),
+        })
     }
+
+    // ── shared outbounds (SS + STLS + direct) ─────────────────────
+
+    fn common_outbounds(&self) -> Vec<SbOutbound> {
+        let c = &self.config;
+        vec![
+            SbOutbound {
+                typ: "shadowsocks".into(),
+                tag: "ss-out".into(),
+                server: Some(c.server_address.clone()),
+                server_port: Some(c.ss_port),
+                method: Some("2022-blake3-chacha20-poly1305".into()),
+                password: Some(c.ss_password.clone()),
+                version: None,
+                tls: None,
+                detour: Some("shadowtls-out".into()),
+            },
+            SbOutbound {
+                typ: "shadowtls".into(),
+                tag: "shadowtls-out".into(),
+                server: Some(c.server_address.clone()),
+                server_port: Some(c.stls_port),
+                version: Some(3),
+                password: Some(c.stls_password.clone()),
+                tls: Some(SbTls {
+                    enabled: true,
+                    server_name: c.stls_sni.clone(),
+                    insecure: false,
+                }),
+                detour: None,
+                method: None,
+            },
+            SbOutbound {
+                typ: "direct".into(),
+                tag: "direct".into(),
+                server: None,
+                server_port: None,
+                method: None,
+                password: None,
+                version: None,
+                tls: None,
+                detour: None,
+            },
+        ]
+    }
+
+    // ── sing-box binary management ─────────────────────────────────
 
     fn sing_box_exe(&self) -> PathBuf {
         self.config_dir.join("sing-box.exe")
     }
 
-    /// Find a bundled sing-box (shipped alongside the installer / next to the
-    /// exe) before ever touching the network. This is the key change that
-    /// eliminates the auto-download on first launch when sing-box.exe already
-    /// ships inside the MSI/NSIS installer's resource directory.
     fn get_bundled_or_download(&self) -> Result<PathBuf> {
-        // Check 1: bundled next to the running EXE (primary release location).
-        // Tauri installs resources into the same folder as the .exe, so
-        // sing-box.exe ends up at `<install_dir>/sing-box.exe`.
         if let Ok(exe_path) = std::env::current_exe() {
-            let default_dir = PathBuf::from(".");
-            let exe_dir = exe_path.parent().unwrap_or(&default_dir);
-            let bundled = exe_dir.join("sing-box.exe");
+            let bundled = exe_path.parent().unwrap_or(Path::new(".")).join("sing-box.exe");
             if bundled.exists() {
                 println!("[stls] using bundled sing-box: {}", bundled.display());
                 return Ok(bundled);
             }
         }
-
-        // Check 2: ./bin/sing-box.exe relative to CWD (dev builds / unpacked zip)
         let bundled = PathBuf::from("bin").join("sing-box.exe");
         if bundled.exists() {
             println!("[stls] using bundled sing-box: {}", bundled.display());
             return Ok(bundled);
         }
-
-        // Check 3: sing-box.exe in CWD (extracted artifacts, manual copy)
         let bundled = PathBuf::from("sing-box.exe");
         if bundled.exists() {
             println!("[stls] using bundled sing-box: {}", bundled.display());
             return Ok(bundled);
         }
-
-        // Check 4: previously cached in config dir
         let cached = self.sing_box_exe();
         if cached.exists() {
             println!("[stls] using cached sing-box: {}", cached.display());
             return Ok(cached);
         }
-
-        // Last resort: download it once into the config dir.
         println!("[stls] no bundled sing-box found, downloading...");
         self.download_sing_box()
     }
@@ -299,25 +505,28 @@ impl ProxyManager {
         let client = reqwest::blocking::Client::builder()
             .user_agent("stls")
             .build()?;
-        
+
         let rel: serde_json::Value = client
             .get("https://api.github.com/repos/SagerNet/sing-box/releases/latest")
             .send()?
             .json()?;
-        
-        let tag = rel["tag_name"].as_str().ok_or_else(|| anyhow::anyhow!("no tag"))?;
+
+        let tag = rel["tag_name"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("no tag"))?;
         let version = tag.trim_start_matches('v');
-        
+
         println!("[stls] downloading sing-box {version}...");
         let zip_name = format!("sing-box-{version}-windows-amd64.zip");
-        let url = format!("https://github.com/SagerNet/sing-box/releases/download/{tag}/{zip_name}");
-        
+        let url =
+            format!("https://github.com/SagerNet/sing-box/releases/download/{tag}/{zip_name}");
+
         let bytes = client.get(&url).send()?.error_for_status()?.bytes()?;
-        
+
         println!("[stls] extracting...");
         let reader = std::io::Cursor::new(bytes);
         let mut archive = zip::ZipArchive::new(reader)?;
-        
+
         for i in 0..archive.len() {
             let mut file = archive.by_index(i)?;
             let name = file.name().to_string();
@@ -330,7 +539,28 @@ impl ProxyManager {
                 return Ok(exe);
             }
         }
-        
+
         bail!("sing-box.exe not found in release")
     }
+}
+
+// ── DNS resolver for STLS server IP (used to build TUN bypass) ────
+
+fn resolve_hostname(host: &str) -> Result<Vec<String>> {
+    let addr_str = format!("{host}:0");
+    let addrs = addr_str
+        .to_socket_addrs()
+        .context("DNS resolution failed")?;
+    let mut ips: Vec<String> = Vec::new();
+    for addr in addrs {
+        let ip = addr.ip().to_string();
+        if !ips.contains(&ip) {
+            ips.push(ip);
+        }
+    }
+    if ips.is_empty() {
+        bail!("no IPs resolved for {host}");
+    }
+    println!("[stls] resolved {host} -> {:?}", ips);
+    Ok(ips)
 }
