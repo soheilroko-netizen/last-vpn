@@ -130,8 +130,6 @@ struct SbInbound {
     #[serde(skip_serializing_if = "Option::is_none")]
     strict_route: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    auto_detect_interface: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     stack: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     sniff: Option<bool>,
@@ -440,7 +438,6 @@ impl ProxyManager {
                 mtu: Some(1400),
                 auto_route: Some(true),
                 strict_route: Some(true),
-                auto_detect_interface: Some(true),
                 stack: Some("system".into()),
                 sniff: Some(true),
                 sniff_override_destination: Some(false),
