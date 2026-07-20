@@ -96,7 +96,10 @@ struct SbRoute {
     rules: Option<Vec<SbRouteRule>>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "final")]
     final_outbound: Option<String>,
-    auto_detect_interface: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auto_detect_interface: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    default_domain_resolver: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -440,7 +443,8 @@ impl ProxyManager {
                     },
                 ]),
                 final_outbound: Some("ss-out".into()),
-                auto_detect_interface: true,
+                auto_detect_interface: Some(true),
+                default_domain_resolver: Some("dns-remote".into()),
             }),
         })
     }
