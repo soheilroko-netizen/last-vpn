@@ -390,6 +390,18 @@ impl ProxyManager {
             stls_ips.iter().map(|ip| format!("{ip}/32")).collect()
         };
 
+        // Use resolved IP in outbound server fields to avoid circular DNS
+        let stls_ip = stls_ips.first()
+            .map(|s| s.clone())
+            .unwrap_or_else(|| "198.18.0.0".into());
+
+        let mut outbounds = self.common_outbounds();
+        for ob in &mut outbounds {
+            if ob.tag == "ss-out" || ob.tag == "shadowtls-out" {
+                ob.server = Some(stls_ip.clone());
+            }
+        }
+
         Ok(SbConfig {
             log: SbLog {
                 disabled: false,
@@ -433,7 +445,7 @@ impl ProxyManager {
                 strict_route: Some(true),
                 stack: Some("system".into()),
             }],
-            outbounds: self.common_outbounds(),
+            outbounds,
             route: Some(SbRoute {
                 rules: Some(vec![
                     SbRouteRule {
