@@ -4,7 +4,7 @@ use crate::config::Config;
 use crate::sysproxy;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
-use std::fs;
+use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::net::ToSocketAddrs;
 use std::path::{Path, PathBuf};
@@ -241,6 +241,9 @@ impl ProxyManager {
         let cfg_path = self.config_dir.join("config.json");
         fs::write(&cfg_path, &cfg_json)?;
 
+        let log_path = self.config_dir.join("sing-box.log");
+        let log_file = fs::File::create(&log_path)?;
+
         // Start sing-box with hidden window on Windows
         #[cfg(target_os = "windows")]
         let child = {
@@ -251,8 +254,8 @@ impl ProxyManager {
                 .arg("-c")
                 .arg(&cfg_path)
                 .creation_flags(CREATE_NO_WINDOW)
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
+                .stdout(Stdio::from(log_file.try_clone()?))
+                .stderr(Stdio::from(log_file))
                 .spawn()?
         };
 
@@ -274,6 +277,30 @@ impl ProxyManager {
 
         *self.child.lock().unwrap() = Some(child);
         *self.active_mode.lock().unwrap() = Some(mode.clone());
+
+        // Check liveness — if sing-box died instantly, report why
+        let mut guard = self.child.lock().unwrap();
+        if let Some(ref mut c) = *guard {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            match c.try_wait() {
+                Ok(Some(status)) => {
+                    // Child exited already — read log
+                    let log = fs::read_to_string(&log_path).unwrap_or_default();
+                    guard.take();
+                    *self.active_mode.lock().unwrap() = None;
+                    bail!("sing-box exited (code={:?}):\n{}", status.code(), log.trim());
+                }
+                Err(e) => {
+                    // try_wait error means child gone
+                    guard.take();
+                    *self.active_mode.lock().unwrap() = None;
+                    bail!("sing-box check failed: {e}");
+                }
+                Ok(None) => {} // still running — good
+            }
+        }
+        drop(guard);
+
         Ok(format!("{} mode started", mode.to_uppercase()))
     }
 
