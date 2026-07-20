@@ -1,20 +1,64 @@
 // sysproxy.rs - Windows system proxy management via HKCU registry
-// Uses WinINet Internet Settings registry keys directly.
-// Notifies Windows via InternetSetOption (raw wininet.dll FFI).
+// Uses raw Win32 FFI for all Registry operations + InternetSetOption.
+// No dependency on the `windows` crate — avoids version mismatch.
 
 use anyhow::{Context, Result};
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::ptr;
-use windows::Win32::Foundation::*;
-use windows::Win32::System::Registry::*;
 
 const INTERNET_SETTINGS: &str =
     r"SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings";
 
-// INTERNET_OPTION constants
 const INTERNET_OPTION_SETTINGS_CHANGED: u32 = 39;
 const INTERNET_OPTION_REFRESH: u32 = 37;
+
+type HKEY = *mut std::ffi::c_void;
+type LPCWSTR = *const u16;
+type PHKEY = *mut HKEY;
+type LPDWORD = *mut u32;
+type LPBYTE = *mut u8;
+
+const HKEY_CURRENT_USER: HKEY = 0x80000001 as HKEY;
+const KEY_QUERY_VALUE: u32 = 0x0001;
+const KEY_SET_VALUE: u32 = 0x0002;
+const REG_DWORD: u32 = 4;
+const REG_SZ: u32 = 1;
+const ERROR_SUCCESS: u32 = 0;
+
+extern "system" {
+    fn RegCloseKey(hKey: HKEY) -> u32;
+    fn RegOpenKeyExW(
+        hKey: HKEY,
+        lpSubKey: LPCWSTR,
+        ulOptions: u32,
+        samDesired: u32,
+        phkResult: PHKEY,
+    ) -> u32;
+    fn RegQueryValueExW(
+        hKey: HKEY,
+        lpValueName: LPCWSTR,
+        lpReserved: LPDWORD,
+        lpType: LPDWORD,
+        lpData: LPBYTE,
+        lpcbData: LPDWORD,
+    ) -> u32;
+    fn RegSetValueExW(
+        hKey: HKEY,
+        lpValueName: LPCWSTR,
+        Reserved: u32,
+        dwType: u32,
+        lpData: *const u8,
+        cbData: u32,
+    ) -> u32;
+    fn RegDeleteValueW(hKey: HKEY, lpValueName: LPCWSTR) -> u32;
+    fn InternetSetOptionW(
+        hInternet: *mut std::ffi::c_void,
+        dwOption: u32,
+        lpBuffer: *mut std::ffi::c_void,
+        dwBufferLength: u32,
+    ) -> i32;
+}
 
 // ── helpers ────────────────────────────────────────────────────────
 
@@ -25,31 +69,41 @@ fn to_wide(s: &str) -> Vec<u16> {
         .collect()
 }
 
-unsafe fn open_key(
-    access: REG_SAM_FLAGS,
-) -> Result<HKEY> {
+unsafe fn open_key(access: u32) -> Result<HKEY> {
     let path = to_wide(INTERNET_SETTINGS);
-    let mut hkey = HKEY::default();
-    RegOpenKeyExW(HKEY_CURRENT_USER, &path, 0, access, &mut hkey)
-        .ok()
-        .context("failed to open Internet Settings registry key")?;
-    Ok(hkey)
+    let mut hkey: HKEY = ptr::null_mut();
+    let rc = RegOpenKeyExW(
+        HKEY_CURRENT_USER,
+        path.as_ptr(),
+        0,
+        access,
+        &mut hkey,
+    );
+    match rc {
+        ERROR_SUCCESS => Ok(hkey),
+        other => anyhow::bail!(
+            "RegOpenKeyExW failed: {:#010x}",
+            other
+        ),
+    }
 }
 
 unsafe fn read_dword(hkey: HKEY, name: &str) -> Option<u32> {
     let name_w = to_wide(name);
     let mut data: u32 = 0;
     let mut size = size_of::<u32>() as u32;
-    RegQueryValueExW(
+    let rc = RegQueryValueExW(
         hkey,
-        &name_w,
-        None,
-        None,
-        Some(&mut data as *mut u32 as *mut u8),
+        name_w.as_ptr(),
+        ptr::null_mut(),
+        ptr::null_mut(),
+        &mut data as *mut u32 as LPBYTE,
         &mut size,
-    )
-    .ok()?;
-    Some(data)
+    );
+    match rc {
+        ERROR_SUCCESS => Some(data),
+        _ => None,
+    }
 }
 
 unsafe fn read_string(hkey: HKEY, name: &str) -> Option<String> {
@@ -57,7 +111,7 @@ unsafe fn read_string(hkey: HKEY, name: &str) -> Option<String> {
 
     // get required buffer size
     let mut size: u32 = 0;
-    if RegQueryValueExW(hkey, &name_w, None, None, None, &mut size).is_err() {
+    if RegQueryValueExW(hkey, name_w.as_ptr(), ptr::null_mut(), ptr::null_mut(), ptr::null_mut(), &mut size) != ERROR_SUCCESS {
         return None;
     }
     if size == 0 {
@@ -65,20 +119,21 @@ unsafe fn read_string(hkey: HKEY, name: &str) -> Option<String> {
     }
 
     let mut buf = vec![0u8; size as usize];
-    RegQueryValueExW(
+    if RegQueryValueExW(
         hkey,
-        &name_w,
-        None,
-        None,
-        Some(buf.as_mut_ptr()),
+        name_w.as_ptr(),
+        ptr::null_mut(),
+        ptr::null_mut(),
+        buf.as_mut_ptr() as LPBYTE,
         &mut size,
-    )
-    .ok()?;
+    ) != ERROR_SUCCESS
+    {
+        return None;
+    }
 
     // REG_SZ is null-terminated UTF-16LE
     let len = size as usize / 2;
-    let wide_slice =
-        std::slice::from_raw_parts(buf.as_ptr() as *const u16, len);
+    let wide_slice = std::slice::from_raw_parts(buf.as_ptr() as *const u16, len);
     // trim trailing null
     let actual_len = wide_slice
         .iter()
@@ -89,56 +144,59 @@ unsafe fn read_string(hkey: HKEY, name: &str) -> Option<String> {
 
 unsafe fn write_dword(hkey: HKEY, name: &str, value: u32) -> Result<()> {
     let name_w = to_wide(name);
-    let data = value as u32;
-    RegSetValueExW(
+    let data = value;
+    let rc = RegSetValueExW(
         hkey,
-        &name_w,
+        name_w.as_ptr(),
         0,
         REG_DWORD,
-        Some(&data as *const u32 as *const u8),
+        &data as *const u32 as *const u8,
         size_of::<u32>() as u32,
-    )
-    .context(format!("failed to write DWORD registry value '{name}'"))?;
-    Ok(())
+    );
+    match rc {
+        ERROR_SUCCESS => Ok(()),
+        other => anyhow::bail!(
+            "RegSetValueExW({}) failed: {:#010x}",
+            name,
+            other
+        ),
+    }
 }
 
 unsafe fn write_string(hkey: HKEY, name: &str, value: &str) -> Result<()> {
     let name_w = to_wide(name);
-    // REG_SZ must be null-terminated UTF-16LE
-    let value_w = to_wide(value);
-    let byte_len = (value_w.len() * 2) as u32; // includes null from to_wide
-    RegSetValueExW(
+    let value_w = to_wide(value); // includes null terminator
+    let byte_len = (value_w.len() * 2) as u32;
+    let rc = RegSetValueExW(
         hkey,
-        &name_w,
+        name_w.as_ptr(),
         0,
         REG_SZ,
-        Some(value_w.as_ptr() as *const u8),
+        value_w.as_ptr() as *const u8,
         byte_len,
-    )
-    .context(format!("failed to write STRING registry value '{name}'"))?;
-    Ok(())
+    );
+    match rc {
+        ERROR_SUCCESS => Ok(()),
+        other => anyhow::bail!(
+            "RegSetValueExW({}) failed: {:#010x}",
+            name,
+            other
+        ),
+    }
 }
 
 unsafe fn delete_value(hkey: HKEY, name: &str) -> Result<()> {
     let name_w = to_wide(name);
-    RegDeleteValueW(hkey, &name_w)
-        .ok()
-        .context(format!("failed to delete registry value '{name}'"))?;
-    Ok(())
-}
-
-#[link(name = "wininet")]
-extern "system" {
-    fn InternetSetOptionW(
-        hInternet: *mut std::ffi::c_void,
-        dwOption: u32,
-        lpBuffer: *mut std::ffi::c_void,
-        dwBufferLength: u32,
-    ) -> i32;
+    let rc = RegDeleteValueW(hkey, name_w.as_ptr());
+    match rc {
+        ERROR_SUCCESS => Ok(()),
+        // ERROR_FILE_NOT_FOUND is fine — value already absent
+        other if other != ERROR_SUCCESS => Ok(()),
+        _ => Ok(()),
+    }
 }
 
 unsafe fn notify_settings_changed() {
-    // Notify WinINet that settings changed
     InternetSetOptionW(
         ptr::null_mut(),
         INTERNET_OPTION_SETTINGS_CHANGED,
@@ -193,8 +251,6 @@ pub fn enable(host: &str, port: u16) -> Result<()> {
         let hkey = open_key(KEY_SET_VALUE | KEY_QUERY_VALUE)?;
         write_dword(hkey, "ProxyEnable", 1)?;
         write_string(hkey, "ProxyServer", &format!("{host}:{port}"))?;
-        // preserve ProxyOverride (don't wipe it)
-        // preserve AutoDetect
         let _ = RegCloseKey(hkey);
         notify_settings_changed();
     }
@@ -210,33 +266,23 @@ pub fn restore(saved: &SavedProxyState) -> Result<()> {
 
         match &saved.proxy_enable {
             Some(v) => write_dword(hkey, "ProxyEnable", *v)?,
-            None => {
-                let _ = delete_value(hkey, "ProxyEnable");
-            }
+            None => { let _ = delete_value(hkey, "ProxyEnable"); }
         }
         match &saved.proxy_server {
             Some(v) => write_string(hkey, "ProxyServer", v)?,
-            None => {
-                let _ = delete_value(hkey, "ProxyServer");
-            }
+            None => { let _ = delete_value(hkey, "ProxyServer"); }
         }
         match &saved.proxy_override {
             Some(v) => write_string(hkey, "ProxyOverride", v)?,
-            None => {
-                let _ = delete_value(hkey, "ProxyOverride");
-            }
+            None => { let _ = delete_value(hkey, "ProxyOverride"); }
         }
         match &saved.auto_config_url {
             Some(v) => write_string(hkey, "AutoConfigURL", v)?,
-            None => {
-                let _ = delete_value(hkey, "AutoConfigURL");
-            }
+            None => { let _ = delete_value(hkey, "AutoConfigURL"); }
         }
         match &saved.auto_detect {
             Some(v) => write_dword(hkey, "AutoDetect", *v)?,
-            None => {
-                let _ = delete_value(hkey, "AutoDetect");
-            }
+            None => { let _ = delete_value(hkey, "AutoDetect"); }
         }
 
         let _ = RegCloseKey(hkey);
