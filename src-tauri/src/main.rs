@@ -87,6 +87,19 @@ fn create_main_window(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::
 }
 
 fn main() {
+    // Log panics to file for debugging silent crashes
+    let panic_log = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("stls-panic.log");
+    std::fs::write(&panic_log, "stls starting...\n").ok();
+    let pl = panic_log.clone();
+    std::panic::set_hook(Box::new(move |info| {
+        let msg = format!("PANIC: {}\n", info);
+        std::fs::write(&pl, &msg).ok();
+    }));
+
     let proxy_manager = ProxyManager::new().expect("Failed to init proxy manager");
 
     tauri::Builder::default()
