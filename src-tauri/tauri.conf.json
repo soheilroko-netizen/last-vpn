@@ -19,8 +19,7 @@
     ],
     "windows": {
       "nsis": {
-        "installerIcon": "icons/icon.ico",
-        "installMode": "admin"
+        "installerIcon": "icons/icon.ico"
       }
     }
   },

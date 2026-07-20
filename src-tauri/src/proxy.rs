@@ -212,6 +212,19 @@ impl ProxyManager {
             bail!("Proxy already running");
         }
 
+        // Check admin on Windows (needed for TUN + sysproxy)
+        #[cfg(target_os = "windows")]
+        {
+            extern "system" {
+                fn IsUserAnAdmin() -> i32;
+            }
+            // SAFETY: IsUserAnAdmin() from shell32.dll
+            let is_admin = unsafe { IsUserAnAdmin() != 0 };
+            if !is_admin {
+                bail!("Admin required. Right-click stls.exe → 'Run as administrator'.");
+            }
+        }
+
         // Re-read config in case user changed mode/settings
         self.config = Config::load()?;
 
