@@ -14,7 +14,12 @@ pub struct Config {
     pub stls_password: String,
     pub stls_sni: String,
     pub socks5_port: u16,
+    #[serde(default = "default_mode")]
     pub mode: String, // "proxy" or "vpn"
+}
+
+fn default_mode() -> String {
+    "proxy".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
