@@ -69,21 +69,17 @@ struct SbDns {
     rules: Option<Vec<SbDnsRule>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     strategy: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    independent_cache: Option<bool>,
 }
 
 #[derive(Serialize)]
 struct SbDnsServer {
+    #[serde(rename = "type")]
+    typ: String,
     tag: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     server: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     server_port: Option<u16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    transport: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    address: Option<String>, // special: dhcp://dns
     #[serde(skip_serializing_if = "Option::is_none")]
     detour: Option<String>,
 }
@@ -412,19 +408,17 @@ impl ProxyManager {
             dns: Some(SbDns {
                 servers: vec![
                     SbDnsServer {
+                        typ: "tcp".into(),
                         tag: "dns-remote".into(),
                         server: Some("8.8.8.8".into()),
                         server_port: Some(53),
-                        transport: Some("tcp".into()),
-                        address: None,
                         detour: Some("ss-out".into()),
                     },
                     SbDnsServer {
+                        typ: "dhcp".into(),
                         tag: "dns-direct".into(),
                         server: None,
                         server_port: None,
-                        transport: None,
-                        address: Some("dhcp://dns".into()),
                         detour: Some("direct".into()),
                     },
                 ],
@@ -435,7 +429,6 @@ impl ProxyManager {
                     },
                 ]),
                 strategy: Some("prefer_ipv4".into()),
-                independent_cache: Some(true),
             }),
             inbounds: vec![SbInbound {
                 typ: "tun".into(),
@@ -633,4 +626,70 @@ fn resolve_hostname(host: &str) -> Result<Vec<String>> {
     }
     println!("[stls] resolved {host} -> {:?}", ips);
     Ok(ips)
+}
+
+// ── tests ────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verify VPN DNS config uses modern schema (type field, no legacy address).
+    #[test]
+    fn vpn_dns_uses_modern_schema() {
+        // Build minimal config to test serialization
+        let cfg = SbConfig {
+            log: SbLog { disabled: false, level: "info".into(), timestamp: true },
+            dns: Some(SbDns {
+                servers: vec![
+                    SbDnsServer {
+                        typ: "tcp".into(),
+                        tag: "dns-remote".into(),
+                        server: Some("8.8.8.8".into()),
+                        server_port: Some(53),
+                        detour: Some("ss-out".into()),
+                    },
+                    SbDnsServer {
+                        typ: "dhcp".into(),
+                        tag: "dns-direct".into(),
+                        server: None,
+                        server_port: None,
+                        detour: Some("direct".into()),
+                    },
+                ],
+                rules: Some(vec![SbDnsRule {
+                    outbound: "any".into(),
+                    server: "dns-remote".into(),
+                }]),
+                strategy: Some("prefer_ipv4".into()),
+            }),
+            inbounds: vec![],
+            outbounds: vec![],
+            route: None,
+        };
+
+        let json = serde_json::to_value(&cfg).unwrap();
+        let dns = json["dns"].as_object().unwrap();
+
+        // Must NOT have deprecated fields
+        assert!(!dns.contains_key("independent_cache"));
+
+        let servers = dns["servers"].as_array().unwrap();
+        assert!(!servers.is_empty());
+
+        for server in servers {
+            let typ = server["type"].as_str().unwrap();
+            assert!(!server.contains_key("address"));
+            assert!(!server.contains_key("transport"));
+
+            match typ {
+                "tcp" => {
+                    assert!(server["server"].is_string());
+                    assert!(server["server_port"].is_u64());
+                }
+                "dhcp" => { /* no extra fields needed */ }
+                other => panic!("unexpected DNS server type: {other}"),
+            }
+        }
+    }
 }
