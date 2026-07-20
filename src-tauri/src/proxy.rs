@@ -371,7 +371,6 @@ impl ProxyManager {
                 mtu: None,
                 auto_route: None,
                 strict_route: None,
-                auto_detect_interface: None,
                 stack: None,
                 sniff: None,
                 sniff_override_destination: None,
