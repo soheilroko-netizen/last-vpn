@@ -26,11 +26,12 @@ fn to_wide(s: &str) -> Vec<u16> {
 }
 
 unsafe fn open_key(
-    access: u32,
+    access: REG_SAM_FLAGS,
 ) -> Result<HKEY> {
     let path = to_wide(INTERNET_SETTINGS);
     let mut hkey = HKEY::default();
     RegOpenKeyExW(HKEY_CURRENT_USER, &path, 0, access, &mut hkey)
+        .ok()
         .context("failed to open Internet Settings registry key")?;
     Ok(hkey)
 }
@@ -121,6 +122,7 @@ unsafe fn write_string(hkey: HKEY, name: &str, value: &str) -> Result<()> {
 unsafe fn delete_value(hkey: HKEY, name: &str) -> Result<()> {
     let name_w = to_wide(name);
     RegDeleteValueW(hkey, &name_w)
+        .ok()
         .context(format!("failed to delete registry value '{name}'"))?;
     Ok(())
 }
