@@ -1,5 +1,5 @@
 fn main() {
-    // Embed manifest for admin elevation (requireAdministrator)
-    embed_resource::compile("stls.exe.manifest");
+    // Embed manifest via embedded resource .rc file
+    embed_resource::compile("stls.rc");
     tauri_build::build()
 }
