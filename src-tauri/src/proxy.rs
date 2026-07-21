@@ -178,7 +178,7 @@ pub struct ProxyManager {
 impl ProxyManager {
     pub fn new() -> Result<Self> {
         let config = Config::load()?;
-        let config_dir = ProjectDirs::from("", "", "stls")
+        let config_dir = ProjectDirs::from("com", "stls", "stls")
             .map(|d| d.config_dir().to_path_buf())
             .unwrap_or_else(|| PathBuf::from("."));
 
@@ -261,8 +261,15 @@ impl ProxyManager {
 
         let cfg_json = serde_json::to_string_pretty(&cfg)?;
         let cfg_path = self.config_dir.join("config.json");
-        fs::write(&cfg_path, &cfg_json)?;
-        self.debug_log(format!("config written to {}", cfg_path.display()));
+
+        // Skip write if config already matches (skip Windows rebuilds)
+        let current = fs::read_to_string(&cfg_path).ok().as_deref();
+        if current != Some(&cfg_json) {
+            fs::write(&cfg_path, &cfg_json)?;
+            self.debug_log(format!("config written to {}", cfg_path.display()));
+        } else {
+            self.debug_log(format!("config unchanged, skipping write"));
+        }
 
         // Validate config before launch
         self.debug_log("running sing-box check...");
@@ -463,7 +470,7 @@ impl ProxyManager {
                 listen: None,
                 listen_port: None,
                 interface_name: Some("stls-tun".into()),
-                address: Some(vec!["172.19.0.1/30".into()]),
+                address: Some(vec!["172.19.0.1/24".into()]),
                 mtu: Some(1400),
                 auto_route: Some(true),
                 strict_route: Some(true),
