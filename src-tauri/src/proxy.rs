@@ -422,6 +422,7 @@ impl ProxyManager {
                 ],
                 rules: Some(vec![
                     SbDnsRule {
+                        inbound: None,
                         server: Some("dns-remote".into()),
                     },
                 ]),
@@ -626,6 +627,7 @@ mod tests {
                     },
                 ],
                 rules: Some(vec![SbDnsRule {
+                    inbound: None,
                     server: Some("dns-remote".into()),
                 }]),
                 strategy: Some("prefer_ipv4".into()),
