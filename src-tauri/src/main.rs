@@ -77,6 +77,13 @@ fn switch_profile(name: String) -> Result<String, String> {
     Ok(format!("Switched to profile '{}'", name))
 }
 
+#[tauri::command]
+fn get_debug_log(state: State<AppState>) -> Result<String, String> {
+    let proxy = state.proxy.lock().unwrap();
+    let path = &proxy.debug_log_path;
+    std::fs::read_to_string(path).map_err(|e| e.to_string())
+}
+
 fn create_main_window(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
         .title("stls v5")
@@ -122,6 +129,7 @@ fn main() {
             add_profile,
             delete_profile,
             switch_profile,
+            get_debug_log,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");

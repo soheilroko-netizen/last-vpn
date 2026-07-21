@@ -172,6 +172,7 @@ pub struct ProxyManager {
     config: Config,
     saved_proxy: Arc<Mutex<Option<sysproxy::SavedProxyState>>>,
     active_mode: Arc<Mutex<Option<String>>>, // records mode when started
+    debug_log_path: PathBuf,
 }
 
 impl ProxyManager {
@@ -185,10 +186,11 @@ impl ProxyManager {
 
         Ok(ProxyManager {
             child: Arc::new(Mutex::new(None)),
-            config_dir,
+            config_dir: config_dir.clone(),
             config,
             saved_proxy: Arc::new(Mutex::new(None)),
             active_mode: Arc::new(Mutex::new(None)),
+            debug_log_path: config_dir.join("stls-debug.log"),
         })
     }
 
@@ -205,6 +207,23 @@ impl ProxyManager {
             }
         } else {
             false
+        }
+    }
+
+    fn debug_log(&self, msg: impl AsRef<str>) {
+        use std::io::Write;
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let line = format!("[{secs}] {}\n", msg.as_ref());
+        if let Ok(mut f) = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.debug_log_path)
+        {
+            let _ = f.write_all(line.as_bytes());
         }
     }
 
@@ -228,8 +247,10 @@ impl ProxyManager {
 
         // Re-read config in case user changed mode/settings
         self.config = Config::load()?;
+        self.debug_log(format!("config loaded, mode={}", self.config.mode));
 
         let exe = self.get_bundled_or_download()?;
+        self.debug_log(format!("sing-box exe: {}", exe.display()));
 
         let mode = self.config.mode.clone();
         let cfg = match mode.as_str() {
@@ -241,8 +262,10 @@ impl ProxyManager {
         let cfg_json = serde_json::to_string_pretty(&cfg)?;
         let cfg_path = self.config_dir.join("config.json");
         fs::write(&cfg_path, &cfg_json)?;
+        self.debug_log(format!("config written to {}", cfg_path.display()));
 
         // Validate config before launch
+        self.debug_log("running sing-box check...");
         let check_output = Command::new(&exe)
             .arg("check")
             .arg("-c")
@@ -252,6 +275,7 @@ impl ProxyManager {
         if !check_output.status.success() {
             let err_text = String::from_utf8_lossy(&check_output.stderr);
             let out_text = String::from_utf8_lossy(&check_output.stdout);
+            self.debug_log(format!("config check FAILED: {err_text}{out_text}"));
             bail!(
                 "Config validation failed:\n{}{}\nConfig: {}",
                 err_text.trim(),
@@ -259,10 +283,12 @@ impl ProxyManager {
                 cfg_path.display()
             );
         }
+        self.debug_log("config check passed");
 
         let log_path = self.config_dir.join("sing-box.log");
         let log_file = fs::File::create(&log_path)?;
 
+        self.debug_log("starting sing-box run...");
         // Start sing-box with hidden window on Windows
         #[cfg(target_os = "windows")]
         let child = {
@@ -277,6 +303,7 @@ impl ProxyManager {
                 .stderr(Stdio::from(log_file))
                 .spawn()?
         };
+        self.debug_log("sing-box process spawned");
 
         #[cfg(not(target_os = "windows"))]
         let child = Command::new(&exe)
@@ -305,12 +332,14 @@ impl ProxyManager {
                 Ok(Some(status)) => {
                     // Child exited already — read log
                     let log = fs::read_to_string(&log_path).unwrap_or_default();
+                    self.debug_log(format!("sing-box exited (code={:?})", status.code()));
                     guard.take();
                     *self.active_mode.lock().unwrap() = None;
                     bail!("sing-box exited (code={:?}):\n{}", status.code(), log.trim());
                 }
                 Err(e) => {
                     // try_wait error means child gone
+                    self.debug_log(format!("sing-box check error: {e}"));
                     guard.take();
                     *self.active_mode.lock().unwrap() = None;
                     bail!("sing-box check failed: {e}");
