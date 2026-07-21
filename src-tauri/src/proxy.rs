@@ -563,6 +563,7 @@ impl ProxyManager {
                 version: None,
                 tls: None,
                 detour: None,
+                udp: None,
             },
         ]
     }
