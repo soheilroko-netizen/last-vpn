@@ -171,6 +171,7 @@ pub struct ProxyManager {
     config_dir: PathBuf,
     config: Config,
     saved_proxy: Arc<Mutex<Option<sysproxy::SavedProxyState>>>,
+    saved_dns: Arc<Mutex<Option<sysdns::DnsState>>>,
     active_mode: Arc<Mutex<Option<String>>>,
     pub debug_log_path: PathBuf,
 }
@@ -189,6 +190,7 @@ impl ProxyManager {
             config_dir: config_dir.clone(),
             config,
             saved_proxy: Arc::new(Mutex::new(None)),
+            saved_dns: Arc::new(Mutex::new(None)),
             active_mode: Arc::new(Mutex::new(None)),
             debug_log_path: config_dir.join("stls-debug.log"),
         })
@@ -263,7 +265,8 @@ impl ProxyManager {
         let cfg_path = self.config_dir.join("config.json");
 
         // Skip write if config already matches (skip Windows rebuilds)
-        let current = fs::read_to_string(&cfg_path).ok().as_deref();
+        let current_raw = fs::read_to_string(&cfg_path).ok();
+        let current = current_raw.as_deref();
         if current != Some(&cfg_json) {
             fs::write(&cfg_path, &cfg_json)?;
             self.debug_log(format!("config written to {}", cfg_path.display()));
@@ -356,6 +359,19 @@ impl ProxyManager {
         }
         drop(guard);
 
+        // Switch DNS to 8.8.8.8 in VPN mode so queries hit TUN
+        if mode == "vpn" {
+            match sysdns::DnsState::enable() {
+                Ok(dns) => {
+                    *self.saved_dns.lock().unwrap() = Some(dns);
+                    self.debug_log("DNS set to 8.8.8.8");
+                }
+                Err(e) => {
+                    self.debug_log(format!("DNS set failed (non-fatal): {e}"));
+                }
+            }
+        }
+
         Ok(format!("{} mode started", mode.to_uppercase()))
     }
 
@@ -379,6 +395,15 @@ impl ProxyManager {
             let snapshot = self.saved_proxy.lock().unwrap().take();
             if let Some(ref saved) = snapshot {
                 let _ = sysproxy::restore(saved);
+            }
+        }
+
+        // Restore DNS (DHCP) in VPN mode
+        if mode.as_deref() == Some("vpn") {
+            let dns_state = self.saved_dns.lock().unwrap().take();
+            if let Some(ref dns) = dns_state {
+                let _ = dns.restore();
+                self.debug_log("DNS restored to DHCP");
             }
         }
 
@@ -470,7 +495,7 @@ impl ProxyManager {
                 listen: None,
                 listen_port: None,
                 interface_name: Some("stls-tun".into()),
-                address: Some(vec!["172.19.0.1/24".into()]),
+                address: Some(vec!["172.19.0.1/30".into()]),
                 mtu: Some(1400),
                 auto_route: Some(true),
                 strict_route: Some(true),
