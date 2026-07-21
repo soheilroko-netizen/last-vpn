@@ -417,13 +417,6 @@ impl ProxyManager {
                         server_port: Some(53),
                         detour: None,
                     },
-                    SbDnsServer {
-                        typ: "dhcp".into(),
-                        tag: "dns-direct".into(),
-                        server: None,
-                        server_port: None,
-                        detour: None,
-                    },
                 ],
                 rules: Some(vec![
                     SbDnsRule {
@@ -629,13 +622,6 @@ mod tests {
                         server_port: Some(53),
                         detour: None,
                     },
-                    SbDnsServer {
-                        typ: "dhcp".into(),
-                        tag: "dns-direct".into(),
-                        server: None,
-                        server_port: None,
-                        detour: None,
-                    },
                 ],
                 rules: Some(vec![SbDnsRule {
                     server: Some("dns-remote".into()),
@@ -654,19 +640,19 @@ mod tests {
         assert!(!dns.contains_key("independent_cache"));
 
         let servers = dns["servers"].as_array().unwrap();
-        assert!(!servers.is_empty());
+        assert_eq!(servers.len(), 1);
 
         for server in servers {
             let typ = server["type"].as_str().unwrap();
             assert!(!server.contains_key("address"));
             assert!(!server.contains_key("transport"));
+            assert!(!server.contains_key("detour"));
 
             match typ {
                 "tcp" => {
                     assert!(server["server"].is_string());
                     assert!(server["server_port"].is_u64());
                 }
-                "dhcp" => { /* no extra fields needed */ }
                 other => panic!("unexpected DNS server type: {other}"),
             }
         }
