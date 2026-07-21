@@ -86,8 +86,8 @@ struct SbDnsServer {
 
 #[derive(Serialize)]
 struct SbDnsRule {
-    action: String,
-    server: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    server: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -427,8 +427,7 @@ impl ProxyManager {
                 ],
                 rules: Some(vec![
                     SbDnsRule {
-                        action: "route".into(),
-                        server: "dns-remote".into(),
+                        server: Some("dns-remote".into()),
                     },
                 ]),
                 strategy: Some("prefer_ipv4".into()),
@@ -639,8 +638,7 @@ mod tests {
                     },
                 ],
                 rules: Some(vec![SbDnsRule {
-                    action: "route".into(),
-                    server: "dns-remote".into(),
+                    server: Some("dns-remote".into()),
                 }]),
                 strategy: Some("prefer_ipv4".into()),
             }),
