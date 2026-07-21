@@ -87,6 +87,8 @@ struct SbDnsServer {
 #[derive(Serialize)]
 struct SbDnsRule {
     #[serde(skip_serializing_if = "Option::is_none")]
+    inbound: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     server: Option<String>,
 }
 
@@ -415,7 +417,7 @@ impl ProxyManager {
                         tag: "dns-remote".into(),
                         server: Some("8.8.8.8".into()),
                         server_port: Some(53),
-                        detour: None,
+                        detour: Some("ss-out".into()),
                     },
                 ],
                 rules: Some(vec![
