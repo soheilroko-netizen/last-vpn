@@ -171,8 +171,8 @@ pub struct ProxyManager {
     config_dir: PathBuf,
     config: Config,
     saved_proxy: Arc<Mutex<Option<sysproxy::SavedProxyState>>>,
-    active_mode: Arc<Mutex<Option<String>>>, // records mode when started
-    debug_log_path: PathBuf,
+    active_mode: Arc<Mutex<Option<String>>>,
+    pub debug_log_path: PathBuf,
 }
 
 impl ProxyManager {
