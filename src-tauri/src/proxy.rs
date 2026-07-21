@@ -158,6 +158,8 @@ struct SbOutbound {
     tls: Option<SbTls>,
     #[serde(skip_serializing_if = "Option::is_none")]
     detour: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    udp: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -475,7 +477,7 @@ impl ProxyManager {
             dns: Some(SbDns {
                 servers: vec![
                     SbDnsServer {
-                        typ: "tcp".into(),
+                        typ: "udp".into(),
                         tag: "dns-remote".into(),
                         server: Some("8.8.8.8".into()),
                         server_port: Some(53),
@@ -533,6 +535,7 @@ impl ProxyManager {
                 version: None,
                 tls: None,
                 detour: Some("shadowtls-out".into()),
+                udp: Some(true),
             },
             SbOutbound {
                 typ: "shadowtls".into(),
@@ -547,6 +550,7 @@ impl ProxyManager {
                     insecure: false,
                 }),
                 detour: None,
+                udp: Some(true),
                 method: None,
             },
             SbOutbound {
