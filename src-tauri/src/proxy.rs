@@ -1,6 +1,7 @@
 // proxy.rs - sing-box proxy manager
 use anyhow::{bail, Context, Result};
 use crate::config::Config;
+use crate::sysdns;
 use crate::sysproxy;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
