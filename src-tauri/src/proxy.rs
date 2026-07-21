@@ -415,14 +415,14 @@ impl ProxyManager {
                         tag: "dns-remote".into(),
                         server: Some("8.8.8.8".into()),
                         server_port: Some(53),
-                        detour: Some("ss-out".into()),
+                        detour: None,
                     },
                     SbDnsServer {
                         typ: "dhcp".into(),
                         tag: "dns-direct".into(),
                         server: None,
                         server_port: None,
-                        detour: Some("direct".into()),
+                        detour: None,
                     },
                 ],
                 rules: Some(vec![
@@ -627,14 +627,14 @@ mod tests {
                         tag: "dns-remote".into(),
                         server: Some("8.8.8.8".into()),
                         server_port: Some(53),
-                        detour: Some("ss-out".into()),
+                        detour: None,
                     },
                     SbDnsServer {
                         typ: "dhcp".into(),
                         tag: "dns-direct".into(),
                         server: None,
                         server_port: None,
-                        detour: Some("direct".into()),
+                        detour: None,
                     },
                 ],
                 rules: Some(vec![SbDnsRule {
