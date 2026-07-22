@@ -261,6 +261,21 @@ impl ProxyManager {
             );
         }
 
+        // VPN mode: override system DNS BEFORE sing-box starts
+        // (auto_route changes default route, making physical interface detection impossible after spawn)
+        if mode == "vpn" {
+            match sysdns::take_snapshot() {
+                Ok(snap) => {
+                    sysdns::set_dns(&snap.interface, "8.8.8.8")
+                        .context("DNS override failed — TUN will eat DNS traffic")?;
+                    *self.saved_dns.lock().unwrap() = Some(snap);
+                }
+                Err(e) => {
+                    eprintln!("[stls] DNS snapshot failed (no DNS override): {e}");
+                }
+            }
+        }
+
         let log_path = self.config_dir.join("sing-box.log");
         let log_file = fs::File::create(&log_path)?;
 
@@ -295,21 +310,6 @@ impl ProxyManager {
             *self.saved_proxy.lock().unwrap() = Some(snapshot);
         }
 
-        // VPN mode: override system DNS to bypass TUN loopback
-        if mode == "vpn" {
-            match sysdns::take_snapshot() {
-                Ok(snap) => {
-                    if let Err(e) = sysdns::set_dns(&snap.interface, "8.8.8.8") {
-                        eprintln!("[stls] DNS set failed (continuing): {e}");
-                    }
-                    *self.saved_dns.lock().unwrap() = Some(snap);
-                }
-                Err(e) => {
-                    eprintln!("[stls] DNS snapshot failed (no DNS override): {e}");
-                }
-            }
-        }
-
         *self.child.lock().unwrap() = Some(child);
         *self.active_mode.lock().unwrap() = Some(mode.clone());
 
@@ -323,12 +323,26 @@ impl ProxyManager {
                     let log = fs::read_to_string(&log_path).unwrap_or_default();
                     guard.take();
                     *self.active_mode.lock().unwrap() = None;
+                    // Restore DNS if we set it before spawn
+                    let saved = self.saved_dns.lock().unwrap().take();
+                    if mode == "vpn" {
+                        if let Some(ref s) = saved {
+                            let _ = sysdns::restore(s);
+                        }
+                    }
                     bail!("sing-box exited (code={:?}):\n{}", status.code(), log.trim());
                 }
                 Err(e) => {
                     // try_wait error means child gone
                     guard.take();
                     *self.active_mode.lock().unwrap() = None;
+                    // Restore DNS if we set it before spawn
+                    let saved = self.saved_dns.lock().unwrap().take();
+                    if mode == "vpn" {
+                        if let Some(ref s) = saved {
+                            let _ = sysdns::restore(s);
+                        }
+                    }
                     bail!("sing-box check failed: {e}");
                 }
                 Ok(None) => {} // still running — good
