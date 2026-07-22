@@ -3,7 +3,25 @@
 // Saves/restores DNS settings so VPN mode can use 8.8.8.8 (bypasses TUN).
 
 use anyhow::{Context, Result};
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::process::Command;
+
+/// Log a debug line to stls-dns-debug.log (Tauri GUI has no stderr console).
+fn dns_log(msg: impl AsRef<str>) {
+    if let Ok(mut f) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("stls-dns-debug.log")
+    {
+        let _ = writeln!(f, "{}", msg.as_ref());
+    }
+}
+
+/// Log via macro for fmt convenience.
+macro_rules! dns_debug {
+    ($($arg:tt)*) => { $crate::sysdns::dns_log(format_args!($($arg)*).to_string()) };
+}
 
 #[derive(Debug, Clone)]
 pub struct SavedDnsState {
@@ -15,14 +33,7 @@ pub struct SavedDnsState {
 /// Get the name of the interface that has a default gateway (internet-facing).
 /// Uses `route print 0.0.0.0` and picks the first interface with metric >0.
 fn find_default_interface() -> Result<String> {
-    eprintln!("[stls] DNS: find_default_interface() — route print 0.0.0.0");
-    // Method: parse `route print 0.0.0.0` which shows the default route with interface name.
-    // Output format:
-    //   IPv4 Route Table
-    //   ===================
-    //   Active Routes:
-    //   Network Destination        Netmask          Gateway       Interface  Metric
-    //   0.0.0.0          0.0.0.0      192.168.1.1   192.168.1.100    25
+    dns_debug!("[stls] DNS: find_default_interface() — route print 0.0.0.0");
     let out = Command::new("route")
         .args(["print", "0.0.0.0"])
         .output()
@@ -31,9 +42,8 @@ fn find_default_interface() -> Result<String> {
         anyhow::bail!("route print failed");
     }
     let text = String::from_utf8_lossy(&out.stdout);
-    eprintln!("[stls] DNS: route print output:\n{}", text.lines().take(20).collect::<Vec<_>>().join("\n"));
+    dns_debug!("[stls] DNS: route print output:\n{}", text.lines().take(20).collect::<Vec<_>>().join("\n"));
 
-    // Find the line starting with "0.0.0.0" after "Active Routes:"
     let mut in_active = false;
     for line in text.lines() {
         let trimmed = line.trim();
@@ -45,12 +55,10 @@ fn find_default_interface() -> Result<String> {
             continue;
         }
         if trimmed.starts_with("0.0.0.0") {
-            // Columns: dest, netmask, gateway, interface, metric
             let parts: Vec<&str> = trimmed.split_whitespace().collect();
             if parts.len() >= 5 {
                 let iface_ip = parts[3];
-                eprintln!("[stls] DNS: found default route via IP {iface_ip}");
-                // Now resolve interface name from IP using `netsh interface ip show config`
+                dns_debug!("[stls] DNS: found default route via IP {iface_ip}");
                 return resolve_interface_name(iface_ip);
             }
         }
@@ -81,18 +89,14 @@ fn find_default_interface() -> Result<String> {
 
 /// Given an interface IP, find the interface name from `netsh interface ip show config`.
 fn resolve_interface_name(ip: &str) -> Result<String> {
-    eprintln!("[stls] DNS: resolve_interface_name(ip=\"{ip}\")");
+    dns_debug!("[stls] DNS: resolve_interface_name(ip=\"{ip}\")");
     let out = Command::new("netsh")
         .args(["interface", "ip", "show", "config"])
         .output()
         .context("failed to run netsh interface ip show config")?;
     let text = String::from_utf8_lossy(&out.stdout);
-    eprintln!("[stls] DNS: netsh ip show config:\n{}", text.lines().take(30).collect::<Vec<_>>().join("\n"));
+    dns_debug!("[stls] DNS: netsh ip show config:\n{}", text.lines().take(30).collect::<Vec<_>>().join("\n"));
 
-    // Format:
-    //   Configuration for interface "Ethernet":
-    //       DHCP enabled:        Yes
-    //       IP Address:          192.168.1.100
     let mut current_iface: Option<String> = None;
     for line in text.lines() {
         let trimmed = line.trim();
@@ -104,13 +108,12 @@ fn resolve_interface_name(ip: &str) -> Result<String> {
             if trimmed.starts_with("IP Address:") || trimmed.starts_with("IPv4 Address:") {
                 let parts: Vec<&str> = trimmed.split_whitespace().collect();
                 if parts.len() >= 3 && parts.last().map(|p| p.trim()) == Some(ip) {
-                    eprintln!("[stls] DNS: resolved interface \"{iface}\" via IP {ip}");
+                    dns_debug!("[stls] DNS: resolved interface \"{iface}\" via IP {ip}");
                     return Ok(iface.clone());
                 }
-                // Also check if it's "IP Address: 192.168.1.100(preferred)" etc.
                 for part in &parts {
                     if part.trim_end_matches("(preferred)") == ip {
-                        eprintln!("[stls] DNS: resolved interface \"{iface}\" via IP {ip} (preferred)");
+                        dns_debug!("[stls] DNS: resolved interface \"{iface}\" via IP {ip} (preferred)");
                         return Ok(iface.clone());
                     }
                 }
@@ -154,14 +157,14 @@ fn has_dns_entry(line: &str) -> bool {
 /// Snapshot current DNS settings for the default interface.
 pub fn take_snapshot() -> Result<SavedDnsState> {
     let iface = find_default_interface()?;
-    eprintln!("[stls] DNS: take_snapshot() for interface \"{iface}\"");
+    dns_debug!("[stls] DNS: take_snapshot() for interface \"{iface}\"");
     let out = Command::new("netsh")
         .args(["interface", "ip", "show", "dns", &iface])
         .output()
         .context("failed to query DNS for interface")?;
 
     let text = String::from_utf8_lossy(&out.stdout);
-    eprintln!("[stls] DNS: netsh ip show dns \"{iface}\":\n{}", text.lines().take(20).collect::<Vec<_>>().join("\n"));
+    dns_debug!("[stls] DNS: netsh ip show dns \"{iface}\":\n{}", text.lines().take(20).collect::<Vec<_>>().join("\n"));
     let mut servers: Vec<String> = Vec::new();
     let mut was_dhcp = false;
 
@@ -170,11 +173,6 @@ pub fn take_snapshot() -> Result<SavedDnsState> {
         if trimmed.contains("DHCP") && trimmed.contains("DNS") {
             was_dhcp = true;
         }
-        if trimmed.contains("Statically Configured DNS Servers") {
-            // If this line shows "None", it means no static DNS - but we treat as static
-            // (the DHCP flag was set earlier if appropriate)
-        }
-        // Extract IPs after colon
         if (trimmed.contains("DHCP") || trimmed.contains("Servers")) && trimmed.contains(':') {
             let after = trimmed.split(':').last().unwrap_or("").trim();
             for part in after.split_whitespace() {
@@ -186,7 +184,7 @@ pub fn take_snapshot() -> Result<SavedDnsState> {
         }
     }
 
-    eprintln!("[stls] DNS: snapshot — was_dhcp={was_dhcp}, servers={:?}", servers);
+    dns_debug!("[stls] DNS: snapshot — was_dhcp={was_dhcp}, servers={:?}", servers);
     Ok(SavedDnsState {
         interface: iface,
         servers,
@@ -196,7 +194,7 @@ pub fn take_snapshot() -> Result<SavedDnsState> {
 
 /// Set DNS server for the given interface to a static IP.
 pub fn set_dns(interface: &str, server: &str) -> Result<()> {
-    eprintln!("[stls] DNS: set_dns(interface=\"{interface}\", server=\"{server}\")");
+    dns_debug!("[stls] DNS: set_dns(interface=\"{interface}\", server=\"{server}\")");
     let out = Command::new("netsh")
         .args(["interface", "ip", "set", "dns", "name", interface, "static", server])
         .output()
@@ -204,7 +202,7 @@ pub fn set_dns(interface: &str, server: &str) -> Result<()> {
 
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
-    eprintln!("[stls] DNS: netsh exit={:?} stdout={:?} stderr={:?}",
+    dns_debug!("[stls] DNS: netsh exit={:?} stdout={:?} stderr={:?}",
         out.status.code(), stdout.trim(), stderr.trim());
 
     if !out.status.success() {
@@ -213,13 +211,13 @@ pub fn set_dns(interface: &str, server: &str) -> Result<()> {
             out.status.code()
         );
     }
-    println!("[stls] DNS {interface} -> {server}");
+    dns_debug!("[stls] DNS {interface} -> {server}");
     Ok(())
 }
 
 /// Restore saved DNS state: either revert to original static servers or return to DHCP.
 pub fn restore(saved: &SavedDnsState) -> Result<()> {
-    eprintln!("[stls] DNS: restore() — interface=\"{}\" was_dhcp={} servers={:?}",
+    dns_debug!("[stls] DNS: restore() — interface=\"{}\" was_dhcp={} servers={:?}",
         saved.interface, saved.was_dhcp, saved.servers);
     if saved.was_dhcp {
         let out = Command::new("netsh")
@@ -227,22 +225,22 @@ pub fn restore(saved: &SavedDnsState) -> Result<()> {
             .output()
             .context("failed to restore DHCP DNS")?;
         let stderr = String::from_utf8_lossy(&out.stderr);
-        eprintln!("[stls] DNS: restore DHCP exit={:?} stderr={:?}", out.status.code(), stderr.trim());
+        dns_debug!("[stls] DNS: restore DHCP exit={:?} stderr={:?}", out.status.code(), stderr.trim());
         if !out.status.success() {
             anyhow::bail!("netsh set dns {} dhcp failed (exit={:?}): {stderr}", saved.interface, out.status.code());
         }
-        println!("[stls] DNS {} -> DHCP (restored)", saved.interface);
+        dns_debug!("[stls] DNS {} -> DHCP (restored)", saved.interface);
     } else if let Some(original) = saved.servers.first() {
         let out = Command::new("netsh")
             .args(["interface", "ip", "set", "dns", "name", &saved.interface, "static", original])
             .output()
             .context("failed to restore static DNS")?;
         let stderr = String::from_utf8_lossy(&out.stderr);
-        eprintln!("[stls] DNS: restore static exit={:?} stderr={:?}", out.status.code(), stderr.trim());
+        dns_debug!("[stls] DNS: restore static exit={:?} stderr={:?}", out.status.code(), stderr.trim());
         if !out.status.success() {
             anyhow::bail!("netsh set dns {} {} failed (exit={:?}): {stderr}", saved.interface, original, out.status.code());
         }
-        println!("[stls] DNS {} -> {} (restored)", saved.interface, original);
+        dns_debug!("[stls] DNS {} -> {} (restored)", saved.interface, original);
     }
     Ok(())
 }
