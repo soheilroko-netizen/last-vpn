@@ -1,9 +1,9 @@
 name: Tauri Build
 on:
   push:
-    branches: [main, v6, dns-fix]
+    branches: [main, v6, wd-relay]
   pull_request:
-    branches: [main, v6, dns-fix]
+    branches: [main, v6, wd-relay]
 
 jobs:
   build:
@@ -40,6 +40,18 @@ jobs:
           New-Item -ItemType Directory -Force src-tauri/bin | Out-Null
           tar -xf sb.zip -C src-tauri/bin --strip-components=1 "sing-box-$tag-windows-amd64/sing-box.exe"
           Get-ChildItem src-tauri/bin/sing-box.exe | Select-Object Name, Length
+
+      - name: Download WinDivert
+        shell: pwsh
+        run: |
+          # WinDivert 2.2.2 A variant
+          Invoke-WebRequest -Uri "https://reqrypt.org/download/WinDivert-2.2.2-A.zip" -OutFile wd.zip
+          New-Item -ItemType Directory -Force src-tauri/bin | Out-Null
+          tar -xf wd.zip -C src-tauri/bin --strip-components=1 "WinDivert-2.2.2-A/x64/WinDivert.dll" "WinDivert-2.2.2-A/x64/WinDivert64.sys"
+          if (-not (Test-Path "src-tauri/bin/WinDivert.dll")) { throw "WinDivert.dll not extracted!" }
+          if (-not (Test-Path "src-tauri/bin/WinDivert64.sys")) { throw "WinDivert64.sys not extracted!" }
+          Write-Host "WinDivert DLL: $(Get-Item src-tauri/bin/WinDivert.dll | % Length) bytes"
+          Write-Host "WinDivert SYS: $(Get-Item src-tauri/bin/WinDivert64.sys | % Length) bytes"
 
       - name: Install npm dependencies
         run: npm install
