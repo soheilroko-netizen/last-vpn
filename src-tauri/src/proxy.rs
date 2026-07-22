@@ -300,16 +300,12 @@ impl ProxyManager {
             match sysdns::take_snapshot() {
                 Ok(snap) => {
                     if let Err(e) = sysdns::set_dns(&snap.interface, "8.8.8.8") {
-                        // non-fatal: log but continue
                         eprintln!("[stls] DNS set failed (continuing): {e}");
                     }
                     *self.saved_dns.lock().unwrap() = Some(snap);
                 }
                 Err(e) => {
-                    eprintln!("[stls] DNS snapshot failed (continuing): {e}");
-                    // Still try to set DNS on a guessed interface
-                    let fallback_iface = "Ethernet";
-                    let _ = sysdns::set_dns(fallback_iface, "8.8.8.8");
+                    eprintln!("[stls] DNS snapshot failed (no DNS override): {e}");
                 }
             }
         }

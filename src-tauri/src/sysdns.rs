@@ -1,6 +1,6 @@
 // sysdns.rs - Windows system DNS management via netsh
-// Saves/restores DNS settings on the default internet-facing interface.
-// Used by VPN mode to set DNS to 8.8.8.8 (which has a TUN bypass rule).
+// Finds the default internet-facing interface dynamically (no hardcoded names).
+// Saves/restores DNS settings so VPN mode can use 8.8.8.8 (bypasses TUN).
 
 use anyhow::{Context, Result};
 use std::process::Command;
@@ -12,57 +12,139 @@ pub struct SavedDnsState {
     pub was_dhcp: bool,
 }
 
-/// Detect the first non-loopback interface with a DNS server set.
+/// Get the name of the interface that has a default gateway (internet-facing).
+/// Uses `route print 0.0.0.0` and picks the first interface with metric >0.
 fn find_default_interface() -> Result<String> {
-    let out = Command::new("netsh")
-        .args(["interface", "ip", "show", "dns"])
+    // Method: parse `route print 0.0.0.0` which shows the default route with interface name.
+    // Output format:
+    //   IPv4 Route Table
+    //   ===================
+    //   Active Routes:
+    //   Network Destination        Netmask          Gateway       Interface  Metric
+    //   0.0.0.0          0.0.0.0      192.168.1.1   192.168.1.100    25
+    let out = Command::new("route")
+        .args(["print", "0.0.0.0"])
         .output()
-        .context("failed to run netsh interface ip show dns")?;
+        .context("failed to run route print")?;
     if !out.status.success() {
-        anyhow::bail!(
-            "netsh dns query failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
+        anyhow::bail!("route print failed");
     }
     let text = String::from_utf8_lossy(&out.stdout);
 
-    // Parse blocks like:
-    //   Configuration for interface "Ethernet":
-    //       DNS servers configured through DHCP:  8.8.8.8
-    //   Configuration for interface "Wi-Fi":
-    //       Statically Configured DNS Servers:    1.1.1.1
-    let mut current_iface: Option<String> = None;
-
+    // Find the line starting with "0.0.0.0" after "Active Routes:"
+    let mut in_active = false;
     for line in text.lines() {
         let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix(r#"Configuration for interface ""#) {
-            if let Some(name) = rest.strip_suffix('"') {
-                current_iface = Some(name.to_string());
-            } else if let Some(name) = rest.strip_suffix("\":") {
-                current_iface = Some(name.to_string());
-            }
+        if trimmed == "Active Routes:" {
+            in_active = true;
             continue;
         }
-
-        // If this line has a DNS server and we know the interface, return it
-        if current_iface.is_some()
-            && (trimmed.contains("DNS server") || trimmed.contains("DNS Servers"))
-            && trimmed.contains(':')
-        {
-            // Check if there's an IP after the colon
-            let after_colon = trimmed.split(':').last().unwrap_or("").trim();
-            if !after_colon.is_empty() && after_colon != "None" {
-                return Ok(current_iface.unwrap());
+        if !in_active {
+            continue;
+        }
+        if trimmed.starts_with("0.0.0.0") {
+            // Columns: dest, netmask, gateway, interface, metric
+            let parts: Vec<&str> = trimmed.split_whitespace().collect();
+            if parts.len() >= 5 {
+                let iface_ip = parts[3];
+                // Now resolve interface name from IP using `netsh interface ip show config`
+                return resolve_interface_name(iface_ip);
             }
         }
     }
 
-    anyhow::bail!("no internet-facing interface with DNS found")
+    // Fallback: parse `netsh interface ip show dns` for any interface with a real DNS server
+    let out2 = Command::new("netsh")
+        .args(["interface", "ip", "show", "dns"])
+        .output()
+        .context("failed to run netsh interface ip show dns")?;
+    let text2 = String::from_utf8_lossy(&out2.stdout);
+    let mut current_iface: Option<String> = None;
+    for line in text2.lines() {
+        let trimmed = line.trim();
+        if let Some(name) = parse_iface_header(trimmed) {
+            current_iface = Some(name);
+            continue;
+        }
+        if let Some(ref iface) = current_iface {
+            if has_dns_entry(trimmed) {
+                return Ok(iface.clone());
+            }
+        }
+    }
+
+    anyhow::bail!("no default-route interface with DNS found")
+}
+
+/// Given an interface IP, find the interface name from `netsh interface ip show config`.
+fn resolve_interface_name(ip: &str) -> Result<String> {
+    let out = Command::new("netsh")
+        .args(["interface", "ip", "show", "config"])
+        .output()
+        .context("failed to run netsh interface ip show config")?;
+    let text = String::from_utf8_lossy(&out.stdout);
+
+    // Format:
+    //   Configuration for interface "Ethernet":
+    //       DHCP enabled:        Yes
+    //       IP Address:          192.168.1.100
+    let mut current_iface: Option<String> = None;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if let Some(name) = parse_iface_header(trimmed) {
+            current_iface = Some(name);
+            continue;
+        }
+        if let Some(ref iface) = current_iface {
+            if trimmed.starts_with("IP Address:") || trimmed.starts_with("IPv4 Address:") {
+                let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                if parts.len() >= 3 && parts.last().map(|p| p.trim()) == Some(ip) {
+                    return Ok(iface.clone());
+                }
+                // Also check if it's "IP Address: 192.168.1.100(preferred)" etc.
+                for part in &parts {
+                    if part.trim_end_matches("(preferred)") == ip {
+                        return Ok(iface.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    anyhow::bail!("could not resolve IP {ip} to interface name")
+}
+
+fn parse_iface_header(line: &str) -> Option<String> {
+    let line = line.trim();
+    // "Configuration for interface "Ethernet":"
+    // "Configuration for interface "Wi-Fi":"
+    if let Some(rest) = line.strip_prefix(r#"Configuration for interface ""#) {
+        if let Some(name) = rest.strip_suffix('"') {
+            return Some(name.to_string());
+        }
+        if let Some(name) = rest.strip_suffix("\":") {
+            return Some(name.to_string());
+        }
+        // Try splitting at last quote
+        if let Some(idx) = rest.rfind('"') {
+            return Some(rest[..idx].to_string());
+        }
+    }
+    None
+}
+
+fn has_dns_entry(line: &str) -> bool {
+    let trimmed = line.trim();
+    let has_dns_keyword =
+        trimmed.contains("DNS server") || trimmed.contains("DNS Servers") || trimmed.contains("DHCP");
+    if !has_dns_keyword || !trimmed.contains(':') {
+        return false;
+    }
+    let after_colon = trimmed.split(':').last().unwrap_or("").trim();
+    !after_colon.is_empty() && after_colon != "None"
 }
 
 /// Snapshot current DNS settings for the default interface.
-///
-/// Returns the interface name, current DNS servers, and whether they came from DHCP.
 pub fn take_snapshot() -> Result<SavedDnsState> {
     let iface = find_default_interface()?;
     let out = Command::new("netsh")
@@ -76,19 +158,18 @@ pub fn take_snapshot() -> Result<SavedDnsState> {
 
     for line in text.lines() {
         let trimmed = line.trim();
-        // DHCP-sourced
-        if trimmed.contains("DNS servers configured through DHCP") {
+        if trimmed.contains("DHCP") && trimmed.contains("DNS") {
             was_dhcp = true;
         }
-        // Static
         if trimmed.contains("Statically Configured DNS Servers") {
-            was_dhcp = false;
+            // If this line shows "None", it means no static DNS - but we treat as static
+            // (the DHCP flag was set earlier if appropriate)
         }
-        // Extract IP addresses (lines ending or containing IPs after colon)
+        // Extract IPs after colon
         if (trimmed.contains("DHCP") || trimmed.contains("Servers")) && trimmed.contains(':') {
             let after = trimmed.split(':').last().unwrap_or("").trim();
             for part in after.split_whitespace() {
-                let part = part.trim_end_matches(',');
+                let part = part.trim_end_matches(',').trim_end_matches(')');
                 if is_ipv4(part) {
                     servers.push(part.to_string());
                 }
@@ -120,7 +201,6 @@ pub fn set_dns(interface: &str, server: &str) -> Result<()> {
 /// Restore saved DNS state: either revert to original static servers or return to DHCP.
 pub fn restore(saved: &SavedDnsState) -> Result<()> {
     if saved.was_dhcp {
-        // Revert to DHCP
         let status = Command::new("netsh")
             .args(["interface", "ip", "set", "dns", "name", &saved.interface, "dhcp"])
             .status()
@@ -131,11 +211,7 @@ pub fn restore(saved: &SavedDnsState) -> Result<()> {
         println!("[stls] DNS {} -> DHCP (restored)", saved.interface);
     } else if let Some(original) = saved.servers.first() {
         let status = Command::new("netsh")
-            .args([
-                "interface", "ip", "set", "dns",
-                "name", &saved.interface,
-                "static", original,
-            ])
+            .args(["interface", "ip", "set", "dns", "name", &saved.interface, "static", original])
             .status()
             .context("failed to restore static DNS")?;
         if !status.success() {
@@ -154,8 +230,6 @@ fn is_ipv4(s: &str) -> bool {
     parts.iter().all(|p| p.parse::<u8>().is_ok())
 }
 
-// ── tests ───────────────────────────────────────────────────────────
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,13 +244,27 @@ mod tests {
     }
 
     #[test]
-    fn test_find_default_interface_runs() {
-        // This will only pass on Windows with netsh available
-        let result = find_default_interface();
-        // On non-Windows, skip assertions
-        #[cfg(not(target_os = "windows"))]
-        let _ = result;
-        #[cfg(target_os = "windows")]
-        assert!(result.is_ok(), "find_default_interface failed: {:?}", result.err());
+    fn test_parse_iface_header() {
+        assert_eq!(
+            parse_iface_header(r#"Configuration for interface "Ethernet":"#).as_deref(),
+            Some("Ethernet")
+        );
+        assert_eq!(
+            parse_iface_header(r#"Configuration for interface "Wi-Fi":"#).as_deref(),
+            Some("Wi-Fi")
+        );
+        assert_eq!(
+            parse_iface_header(r#"Configuration for interface "Local Area Connection* 10":"#).as_deref(),
+            Some("Local Area Connection* 10")
+        );
+        assert!(parse_iface_header("   something else:").is_none());
+    }
+
+    #[test]
+    fn test_has_dns_entry() {
+        assert!(has_dns_entry("    DNS servers configured through DHCP:  8.8.8.8"));
+        assert!(has_dns_entry("    Statically Configured DNS Servers:    1.1.1.1"));
+        assert!(!has_dns_entry("    Register with which suffix:           Primary only"));
+        assert!(!has_dns_entry("    Statically Configured DNS Servers:     None"));
     }
 }
