@@ -338,7 +338,7 @@ impl ProxyManager {
 
         // 4. Build filter and start WinDivert engine
         let filter = build_wd_filter(&vps_ip);
-        let engine = WdEngine::new(&wd_dll, &filter);
+        let engine = WdEngine::new(&wd_dll);
         engine.start(&filter).context("WinDivert engine failed to start")?;
         *self.wd_engine.lock().unwrap() = Some(engine);
 
