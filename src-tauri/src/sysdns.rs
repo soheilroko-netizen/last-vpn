@@ -195,8 +195,9 @@ pub fn take_snapshot() -> Result<SavedDnsState> {
 /// Set DNS server for the given interface to a static IP.
 pub fn set_dns(interface: &str, server: &str) -> Result<()> {
     dns_debug!("[stls] DNS: set_dns(interface=\"{interface}\", server=\"{server}\")");
+    // Positional syntax: netsh interface ip set dns "<iface>" static <ip>
     let out = Command::new("netsh")
-        .args(["interface", "ip", "set", "dns", "name", interface, "static", server])
+        .args(["interface", "ip", "set", "dns", interface, "static", server])
         .output()
         .context("failed to run netsh set dns")?;
 
@@ -221,7 +222,7 @@ pub fn restore(saved: &SavedDnsState) -> Result<()> {
         saved.interface, saved.was_dhcp, saved.servers);
     if saved.was_dhcp {
         let out = Command::new("netsh")
-            .args(["interface", "ip", "set", "dns", "name", &saved.interface, "dhcp"])
+            .args(["interface", "ip", "set", "dns", &saved.interface, "dhcp"])
             .output()
             .context("failed to restore DHCP DNS")?;
         let stderr = String::from_utf8_lossy(&out.stderr);
@@ -232,7 +233,7 @@ pub fn restore(saved: &SavedDnsState) -> Result<()> {
         dns_debug!("[stls] DNS {} -> DHCP (restored)", saved.interface);
     } else if let Some(original) = saved.servers.first() {
         let out = Command::new("netsh")
-            .args(["interface", "ip", "set", "dns", "name", &saved.interface, "static", original])
+            .args(["interface", "ip", "set", "dns", &saved.interface, "static", original])
             .output()
             .context("failed to restore static DNS")?;
         let stderr = String::from_utf8_lossy(&out.stderr);
