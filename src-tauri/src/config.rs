@@ -7,20 +7,28 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    #[serde(default = "default_server_address")]
     pub server_address: String,
+    #[serde(default = "default_ss_port")]
     pub ss_port: u16,
     pub ss_password: String,
+    #[serde(default = "default_stls_port")]
     pub stls_port: u16,
     pub stls_password: String,
+    #[serde(default = "default_stls_sni")]
     pub stls_sni: String,
+    #[serde(default = "default_socks5_port")]
     pub socks5_port: u16,
     #[serde(default = "default_mode")]
-    pub mode: String, // "proxy" or "vpn"
+    pub mode: String,
 }
 
-fn default_mode() -> String {
-    "proxy".to_string()
-}
+fn default_server_address() -> String { "ns.baft.uk".to_string() }
+fn default_ss_port() -> u16 { 8380 }
+fn default_stls_port() -> u16 { 8553 }
+fn default_stls_sni() -> String { "dl.google.com".to_string() }
+fn default_socks5_port() -> u16 { 1080 }
+fn default_mode() -> String { "proxy".to_string() }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Profile {
@@ -64,8 +72,14 @@ impl Config {
             return Ok(Self::default());
         }
         let content = fs::read_to_string(&path)?;
-        let config: Config = serde_json::from_str(&content)?;
-        Ok(config)
+        // Try to parse, fallback to defaults on any error (migration safety)
+        match serde_json::from_str::<Config>(&content) {
+            Ok(config) => Ok(config),
+            Err(_) => {
+                eprintln!("[stls] config parse failed, using defaults");
+                Ok(Self::default())
+            }
+        }
     }
 
     pub fn save(&self) -> Result<()> {

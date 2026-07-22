@@ -384,11 +384,14 @@ impl ProxyManager {
         let stls_ips: Vec<String> = resolve_hostname(&c.server_address)
             .context("failed to resolve ShadowTLS server address")?;
 
-        let bypass_cidrs: Vec<String> = if stls_ips.is_empty() {
+        let mut bypass_cidrs: Vec<String> = if stls_ips.is_empty() {
             vec!["198.18.0.0/15".into()] // fallback: sing-box reserved
         } else {
             stls_ips.iter().map(|ip| format!("{ip}/32")).collect()
         };
+
+        // Also bypass the remote DNS server directly to prevent circular DNS
+        bypass_cidrs.push("8.8.8.8/32".into());
 
         // Use resolved IP in outbound server fields to avoid circular DNS
         let stls_ip = stls_ips.first()
@@ -411,11 +414,11 @@ impl ProxyManager {
             dns: Some(SbDns {
                 servers: vec![
                     SbDnsServer {
-                        typ: "tcp".into(),
+                        typ: "udp".into(),       // UDP not TCP (port 53 TCP often blocked)
                         tag: "dns-remote".into(),
                         server: Some("8.8.8.8".into()),
                         server_port: Some(53),
-                        detour: None,
+                        detour: Some("direct".into()), // DNS via direct, not through proxy
                     },
                 ],
                 rules: Some(vec![
@@ -431,7 +434,7 @@ impl ProxyManager {
                 listen: None,
                 listen_port: None,
                 interface_name: Some("stls-tun".into()),
-                address: Some(vec!["172.19.0.1/30".into()]),
+                address: Some(vec!["172.19.0.1/24".into()]), // /24 not /30
                 mtu: Some(1400),
                 auto_route: Some(true),
                 strict_route: Some(true),
