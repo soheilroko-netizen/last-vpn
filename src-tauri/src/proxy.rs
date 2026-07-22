@@ -136,7 +136,7 @@ struct SbInbound {
     #[serde(skip_serializing_if = "Option::is_none")]
     stack: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    dns_server: Option<String>,
+    sniff: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -411,7 +411,7 @@ impl ProxyManager {
                 auto_route: None,
                 strict_route: None,
                 stack: None,
-                dns_server: None,
+                sniff: None,
             }],
             outbounds: self.common_outbounds(),
             route: None,
@@ -486,11 +486,16 @@ impl ProxyManager {
                 auto_route: Some(true),
                 strict_route: Some(true),
                 stack: Some("system".into()),
-                dns_server: Some("dns-remote".into()),
+                sniff: Some(true),
             }],
             outbounds,
             route: Some(SbRoute {
                 rules: Some(vec![
+                    SbRouteRule {
+                        protocol: Some("dns".into()),
+                        ip_cidr: None,
+                        outbound: "direct".into(),
+                    },
                     SbRouteRule {
                         protocol: None,
                         ip_cidr: Some(bypass_cidrs),
