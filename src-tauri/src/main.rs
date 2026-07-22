@@ -9,6 +9,7 @@ mod proxy;
 mod sysdns;
 mod sysproxy;
 mod wd;
+mod wd_engine;
 
 use config::Config;
 use config::ProfileStore;

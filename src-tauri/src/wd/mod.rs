@@ -53,8 +53,8 @@ pub struct WINDIVERT_ADDRESS {
     pub IfIdx: UINT32,
     pub SubIfIdx: UINT32,
     pub Direction: UINT8,
-    // padding for 8-byte alignment
-    _pad: [u8; 3],
+    pub Impostor: UINT8,
+    _pad: [u8; 2],
 }
 
 impl WINDIVERT_ADDRESS {
@@ -63,6 +63,9 @@ impl WINDIVERT_ADDRESS {
     }
     pub fn set_outbound(&mut self, out: bool) {
         self.Direction = if out { 0 } else { 1 };
+    }
+    pub fn set_impostor(&mut self, impostor: bool) {
+        self.Impostor = if impostor { 1 } else { 0 };
     }
 }
 

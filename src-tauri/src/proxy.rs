@@ -4,6 +4,7 @@ use crate::config::Config;
 use crate::sysdns;
 use crate::sysproxy;
 use crate::wd;
+use crate::wd_engine;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
@@ -12,9 +13,6 @@ use std::net::ToSocketAddrs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
-
-mod wd_engine;
-use wd_engine::WdEngine;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Profile {
@@ -588,7 +586,6 @@ fn build_wd_filter(vps_ip: &str) -> String {
         "tcp and (outbound) and " \
         "not ip.DstAddr == {vps_ip} and " \
         "not tcp.DstPort == 34010 and " \
-        "not tcp.SrcPort == 34010 and " \
         "not tcp.DstPort == 1080 and " \
         "not tcp.SrcPort == 1080 and " \
         "not (ip.DstAddr >= 10.0.0.0 and ip.DstAddr <= 10.255.255.255) and " \

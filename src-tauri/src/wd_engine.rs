@@ -1,24 +1,24 @@
-// wd_engine.rs — WinDivert TCP redirect engine
+// wd_engine.rs — WinDivert TCP intercept engine (reflection pattern)
 //
-// Based on Tallow/streamdump approach:
-// 1. Intercept outbound TCP SYN
-// 2. Record original dest (IP:port)
-// 3. Rewrite dst to local machine:RELAY_PORT
-// 4. Send as outbound — OS establishes TCP with our relay
-// 5. Relay accepts connection, looks up original dest
-// 6. Relay SOCKS5 CONNECTs to local proxy → SS→STLS→VPS
-// 7. Bidirectional byte shuttle (normal TCP, no more WinDivert involvement)
+// Architecture (ProxyBridge/streamdump):
+// 1. App outbound SYN → reflect INBOUND (swap src↔dst, dst_port=RELAY_PORT, impostor=TRUE)
+// 2. Relay accepts connection from google.com:app_port → SOCKS5 → proxy → VPS
+// 3. Relay writes response to accepted socket → OUTBOUND with SrcPort=RELAY_PORT
+// 4. packet_loop catches relay response → un-reflect → INBOUND with impostor=TRUE
+// 5. App receives data matching its socket 4-tuple
+//
+// Two WinDivert handles would be cleaner but we can do it with one:
+// - Filter: not impostor and tcp and (outbound) → catches both app outbound AND relay responses
+// - Distinguish by SrcPort: app uses ephemeral ports, relay uses RELAY_PORT
 
 use crate::wd::*;
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::net::{Ipv4Addr, TcpListener, TcpStream};
+use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use std::thread;
-
-// ── Constants ──────────────────────────────────────────────────────
 
 const RELAY_PORT: u16 = 34010;
 const MAXBUF: usize = 0xFFFF;
@@ -29,8 +29,8 @@ const PROXY_PORT: u16 = 1080;
 // ── Connection table ───────────────────────────────────────────────
 
 struct ConnEntry {
-    dst_ip: [u8; 4],
-    dst_port: u16,
+    dst_ip: [u8; 4],   // net byte order
+    dst_port: u16,     // host byte order
     last_seen: Instant,
 }
 
@@ -151,7 +151,20 @@ fn packet_loop(wd: Arc<WinDivert>, running: Arc<AtomicBool>, ct: Arc<Mutex<ConnT
         match wd.recv(&mut buf) {
             Ok((pkt_len, addr)) => {
                 let pkt = &buf[..pkt_len as usize];
-                process_outbound(wd.as_ref(), pkt, &addr, &ct);
+                // Determine direction by checking SrcPort
+                let ip_hl = if pkt.len() >= 20 { (pkt[0] & 0x0F) as usize * 4 } else { 20 };
+                if pkt.len() < ip_hl + 20 { continue; }
+                let src_port = u16::from_be_bytes([pkt[ip_hl], pkt[ip_hl + 1]]);
+
+                if src_port == RELAY_PORT {
+                    // Relay response → un-reflect back to app
+                    handle_relay_response(&wd, pkt, &addr, &ct);
+                } else if addr.is_outbound() {
+                    // App outbound → reflect to relay (if TCP SYN or tracked)
+                    handle_app_outbound(&wd, pkt, &addr, &ct);
+                } else {
+                    let _ = wd.send(pkt, &addr);
+                }
             }
             Err(e) => {
                 eprintln!("[wd] recv: {e}");
@@ -163,83 +176,121 @@ fn packet_loop(wd: Arc<WinDivert>, running: Arc<AtomicBool>, ct: Arc<Mutex<ConnT
     eprintln!("[wd] packet loop ended");
 }
 
-fn process_outbound(
-    wd: &WinDivert,
-    pkt: &[u8],
-    addr: &WINDIVERT_ADDRESS,
-    ct: &Arc<Mutex<ConnTable>>,
-) {
-    // Parse
-    let pp = wd.parse_packet(pkt);
-    let (ip, tcp) = match (pp.ip, pp.tcp) {
-        (Some(ip), Some(tcp)) => (ip, tcp),
-        _ => { let _ = wd.send(pkt, addr); return; }
-    };
-
-    let ip_hl = (ip.HdrLength & 0x0F) as usize * 4;
+/// App outbound: capture SYN or tracked-connection data, reflect to relay
+fn handle_app_outbound(wd: &WinDivert, pkt: &[u8], addr: &WINDIVERT_ADDRESS, ct: &Arc<Mutex<ConnTable>>) {
+    let ip_hl = (pkt[0] & 0x0F) as usize * 4;
     let tcp_off = ip_hl;
+    if pkt.len() < tcp_off + 20 { let _ = wd.send(pkt, addr); return; }
 
-    // Read ports from raw buffer (network byte order)
     let src_port = u16::from_be_bytes([pkt[tcp_off], pkt[tcp_off + 1]]);
     let dst_port = u16::from_be_bytes([pkt[tcp_off + 2], pkt[tcp_off + 3]]);
     let flags = pkt[tcp_off + 13];
+    let is_syn = (flags & 0x02) != 0 && (flags & 0x10) == 0;
+    let is_fin = (flags & 0x01) != 0;
+    let is_rst = (flags & 0x04) != 0;
 
-    // Skip if not outbound
-    if !addr.is_outbound() {
+    // Capture SYN or data on tracked connection
+    let mut tracked = false;
+    if is_syn {
+        let mut dst_ip = [0u8; 4];
+        dst_ip.copy_from_slice(&pkt[16..20]);
+        ct.lock().unwrap().insert(src_port, dst_ip, dst_port);
+        tracked = true;
+    } else {
+        tracked = ct.lock().unwrap().lookup(src_port).is_some();
+    }
+
+    if !tracked {
         let _ = wd.send(pkt, addr);
         return;
     }
 
-    // Only intercept TCP SYN (new connections)
-    let is_syn = (flags & 0x02) != 0 && (flags & 0x10) == 0;
-    if !is_syn {
-        // Non-SYN: if this is a tracked connection, redirect to relay
-        // (covers subsequent packets on the same connection)
-        let tracked = ct.lock().unwrap().lookup(src_port);
-        if tracked.is_some() {
-            let mut mod_pkt = pkt.to_vec();
-            // Overwrite dst IP with local machine IP (the original src IP)
-            mod_pkt[16..20].copy_from_slice(&mod_pkt[12..16]); // DstIP = SrcIP
-            let relay_be = RELAY_PORT.to_be_bytes();
-            mod_pkt[tcp_off + 2] = relay_be[0];
-            mod_pkt[tcp_off + 3] = relay_be[1];
-            wd.calc_checksums(&mut mod_pkt, addr).ok();
-
-            if flags & 0x01 != 0 || flags & 0x04 != 0 {
-                ct.lock().unwrap().remove(src_port);
-            }
-            let _ = wd.send(&mod_pkt, addr);
-        } else {
-            let _ = wd.send(pkt, addr);
-        }
-        return;
+    if is_fin || is_rst {
+        ct.lock().unwrap().remove(src_port);
     }
 
-    // ── SYN handling ──
-    let mut dst_ip = [0u8; 4];
-    dst_ip.copy_from_slice(&pkt[16..20]);
-
-    // Record original destination
-    ct.lock().unwrap().insert(src_port, dst_ip, dst_port);
-
-    // Modify packet: redirect to local relay
+    // Reflect: swap src↔dst, set dst_port=RELAY_PORT, inject inbound with impostor
     let mut mod_pkt = pkt.to_vec();
-    mod_pkt[16..20].copy_from_slice(&mod_pkt[12..16]); // DstIP = SrcIP (local machine)
+    // Swap IP src↔dst (bytes 12-15 ↔ 16-19)
+    let old_src = [mod_pkt[12], mod_pkt[13], mod_pkt[14], mod_pkt[15]];
+    mod_pkt[12..16].copy_from_slice(&mod_pkt[16..20]); // Src = old Dst
+    mod_pkt[16..20].copy_from_slice(&old_src);          // Dst = old Src
+    // Change TCP dst port to relay
     let relay_be = RELAY_PORT.to_be_bytes();
-    mod_pkt[tcp_off + 2] = relay_be[0]; // DstPort = RELAY_PORT
+    mod_pkt[tcp_off + 2] = relay_be[0];
     mod_pkt[tcp_off + 3] = relay_be[1];
 
-    // Recalc and send
-    wd.calc_checksums(&mut mod_pkt, addr).ok();
-    let _ = wd.send(&mod_pkt, addr);
+    // Build modified address: set inbound + impostor + recalc
+    let mut mod_addr = *addr;
+    mod_addr.set_outbound(false);
+    mod_addr.set_impostor(true);
+
+    if let Err(e) = wd.calc_checksums(&mut mod_pkt, &mod_addr) {
+        eprintln!("[wd] reflect chksum err: {e}");
+        // Send anyway, might still work
+    }
+    let _ = wd.send(&mod_pkt, &mod_addr);
+}
+
+/// Relay response: un-reflect back to app's original 4-tuple
+fn handle_relay_response(wd: &WinDivert, pkt: &[u8], addr: &WINDIVERT_ADDRESS, ct: &Arc<Mutex<ConnTable>>) {
+    let ip_hl = (pkt[0] & 0x0F) as usize * 4;
+    let tcp_off = ip_hl;
+    if pkt.len() < tcp_off + 20 { let _ = wd.send(pkt, addr); return; }
+
+    // SrcPort == RELAY_PORT, DstPort is the app's ephemeral port
+    let app_port = u16::from_be_bytes([pkt[tcp_off + 2], pkt[tcp_off + 3]]);
+
+    let entry = match ct.lock().unwrap().lookup(app_port) {
+        Some(e) => e,
+        None => {
+            // Unknown → let it pass (will go nowhere useful)
+            let _ = wd.send(pkt, addr);
+            return;
+        }
+    };
+
+    // Un-reflect: restore original 4-tuple
+    // Current: SrcIP=local_ip:34010, DstIP=original_dst_ip:app_port
+    // Want:    SrcIP=original_dst_ip:original_dst_port, DstIP=local_ip:app_port
+    let mut mod_pkt = pkt.to_vec();
+
+    // DstIP (bytes 16-19) is currently the original dst_ip (from reflection).
+    // We need:
+    //   SrcIP ← DstIP (currently original_dst_ip, restore)
+    //   DstIP ← SrcIP (currently local_ip, restore)
+    //   SrcPort ← original_dst_port
+    //   DstPort ← app_port (already correct)
+
+    // Swap IP src↔dst
+    let old_src = [mod_pkt[12], mod_pkt[13], mod_pkt[14], mod_pkt[15]];
+    mod_pkt[12..16].copy_from_slice(&mod_pkt[16..20]); // SrcIP = DstIP (original dst)
+    mod_pkt[16..20].copy_from_slice(&old_src);          // DstIP = SrcIP (local ip)
+
+    // Restore original dst port as src port
+    let dst_port_be = entry.dst_port.to_be_bytes();
+    mod_pkt[tcp_off] = dst_port_be[0];     // SrcPort = original dst
+    mod_pkt[tcp_off + 1] = dst_port_be[1];
+
+    // DstPort stays as app_port (already correct)
+
+    // Build modified address: inbound + impostor
+    let mut mod_addr = *addr;
+    mod_addr.set_outbound(false);
+    mod_addr.set_impostor(true);
+
+    if let Err(e) = wd.calc_checksums(&mut mod_pkt, &mod_addr) {
+        eprintln!("[wd] unreflect chksum err: {e}");
+    }
+    let _ = wd.send(&mod_pkt, &mod_addr);
 }
 
 // ═════════════════════════════════════════════════════════════════════
 // RELAY LISTENER
 // ═════════════════════════════════════════════════════════════════════
-// Accepts redirected connections from the app (via modified SYN).
-// peer_addr = (app_ip, app_eph_port).
-// Look up original dest from conn table.
+// Each reflected SYN arrives as an INBOUND connection to :RELAY_PORT.
+// The relay accept() sees peer = (original_dst_ip, app_eph_port).
+// Look up app_port to get original dst_port, then SOCKS5 connect to proxy.
 
 fn relay_listener(
     relay_port: u16,
@@ -261,22 +312,21 @@ fn relay_listener(
         match listener.accept() {
             Ok((stream, peer)) => {
                 let app_port = peer.port();
-
                 let entry = ct.lock().unwrap().lookup(app_port);
                 match entry {
                     Some(e) => {
-                        let orig_dst = Ipv4Addr::new(e.dst_ip[0], e.dst_ip[1], e.dst_ip[2], e.dst_ip[3]);
-                        let orig_port = e.dst_port;
-                        eprintln!("[relay] accept app:{app_port} → {orig_dst}:{orig_port}");
-
+                        let orig_ip = std::net::Ipv4Addr::new(
+                            e.dst_ip[0], e.dst_ip[1], e.dst_ip[2], e.dst_ip[3]
+                        );
+                        eprintln!("[relay] accept app:{app_port} → {orig_ip}:{}", e.dst_port);
                         let proxy_addr = format!("127.0.0.1:{proxy_port}");
                         let ct = ct.clone();
                         thread::spawn(move || {
-                            handle_relay(stream, &proxy_addr, orig_dst, orig_port, app_port, ct);
+                            handle_relay(stream, &proxy_addr, orig_ip, e.dst_port, app_port, ct);
                         });
                     }
                     None => {
-                        eprintln!("[relay] no entry for port {app_port}, closing");
+                        eprintln!("[relay] no table entry for port {app_port}, close");
                         drop(stream);
                     }
                 }
@@ -295,7 +345,7 @@ fn relay_listener(
 fn handle_relay(
     mut app: TcpStream,
     proxy_addr: &str,
-    orig_ip: Ipv4Addr,
+    orig_ip: std::net::Ipv4Addr,
     orig_port: u16,
     app_port: u16,
     ct: Arc<Mutex<ConnTable>>,
@@ -303,7 +353,7 @@ fn handle_relay(
     let mut proxy = match TcpStream::connect(proxy_addr) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("[relay] proxy connect fail '{proxy_addr}': {e}");
+            eprintln!("[relay] proxy connect '{proxy_addr}': {e}");
             return;
         }
     };
@@ -369,8 +419,16 @@ fn socks5_connect(stream: &mut TcpStream, addr: &std::net::IpAddr, port: u16) ->
     if buf[0] != 5 || buf[1] != 0 {
         return Err(format!("conn rejected: reply={}", buf[1]));
     }
-    let drain = match buf[3] { 1 => 6, 4 => 18, 3 => { let _ = stream.read_exact(&mut buf[..1]); buf[0] as usize + 2 } _ => 0 };
-    if drain > 0 { let _ = stream.read_exact(&mut buf[..drain.min(260)]); }
+    let drain_size = match buf[3] {
+        1 => 6,
+        4 => 18,
+        3 => {
+            let _ = stream.read_exact(&mut buf[..1]);
+            buf[0] as usize + 2
+        }
+        _ => 0,
+    };
+    if drain_size > 0 { let _ = stream.read_exact(&mut buf[..drain_size.min(260)]); }
     Ok(())
 }
 
