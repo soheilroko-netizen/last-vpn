@@ -1,6 +1,7 @@
 // proxy.rs - sing-box proxy manager
 use anyhow::{bail, Context, Result};
 use crate::config::Config;
+use crate::sysdns;
 use crate::sysproxy;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
@@ -169,6 +170,7 @@ pub struct ProxyManager {
     config_dir: PathBuf,
     config: Config,
     saved_proxy: Arc<Mutex<Option<sysproxy::SavedProxyState>>>,
+    saved_dns: Arc<Mutex<Option<sysdns::SavedDnsState>>>,
     active_mode: Arc<Mutex<Option<String>>>, // records mode when started
 }
 
@@ -186,6 +188,7 @@ impl ProxyManager {
             config_dir,
             config,
             saved_proxy: Arc::new(Mutex::new(None)),
+            saved_dns: Arc::new(Mutex::new(None)),
             active_mode: Arc::new(Mutex::new(None)),
         })
     }
@@ -292,6 +295,25 @@ impl ProxyManager {
             *self.saved_proxy.lock().unwrap() = Some(snapshot);
         }
 
+        // VPN mode: override system DNS to bypass TUN loopback
+        if mode == "vpn" {
+            match sysdns::take_snapshot() {
+                Ok(snap) => {
+                    if let Err(e) = sysdns::set_dns(&snap.interface, "8.8.8.8") {
+                        // non-fatal: log but continue
+                        eprintln!("[stls] DNS set failed (continuing): {e}");
+                    }
+                    *self.saved_dns.lock().unwrap() = Some(snap);
+                }
+                Err(e) => {
+                    eprintln!("[stls] DNS snapshot failed (continuing): {e}");
+                    // Still try to set DNS on a guessed interface
+                    let fallback_iface = "Ethernet";
+                    let _ = sysdns::set_dns(fallback_iface, "8.8.8.8");
+                }
+            }
+        }
+
         *self.child.lock().unwrap() = Some(child);
         *self.active_mode.lock().unwrap() = Some(mode.clone());
 
@@ -341,6 +363,14 @@ impl ProxyManager {
             let snapshot = self.saved_proxy.lock().unwrap().take();
             if let Some(ref saved) = snapshot {
                 let _ = sysproxy::restore(saved);
+            }
+        }
+
+        // Restore system DNS for VPN mode
+        if mode.as_deref() == Some("vpn") {
+            let snapshot = self.saved_dns.lock().unwrap().take();
+            if let Some(ref saved) = snapshot {
+                let _ = sysdns::restore(saved);
             }
         }
 
