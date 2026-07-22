@@ -336,9 +336,10 @@ impl ProxyManager {
         // 3. Find and bundle WinDivert.dll next to config/exe
         let wd_dll = self.bundle_windivert()?;
 
-        // 4. Start WinDivert engine
-        let engine = WdEngine::new(&wd_dll, &vps_ip);
-        engine.start().context("WinDivert engine failed to start")?;
+        // 4. Build filter and start WinDivert engine
+        let filter = build_wd_filter(&vps_ip);
+        let engine = WdEngine::new(&wd_dll, &filter);
+        engine.start(&filter).context("WinDivert engine failed to start")?;
         *self.wd_engine.lock().unwrap() = Some(engine);
 
         // 5. Override system DNS
@@ -577,4 +578,25 @@ fn resolve_hostname(host: &str) -> Result<Vec<String>> {
         if !ips.contains(&ip) { ips.push(ip); }
     }
     Ok(ips)
+}
+
+/// Build WinDivert filter string for VPN mode.
+/// Intercepts all outbound TCP except: VPS IP, relay port, proxy port, LAN.
+fn build_wd_filter(vps_ip: &str) -> String {
+    format!(
+        "not impostor and " \
+        "tcp and (outbound) and " \
+        "not ip.DstAddr == {vps_ip} and " \
+        "not tcp.DstPort == 34010 and " \
+        "not tcp.SrcPort == 34010 and " \
+        "not tcp.DstPort == 1080 and " \
+        "not tcp.SrcPort == 1080 and " \
+        "not (ip.DstAddr >= 10.0.0.0 and ip.DstAddr <= 10.255.255.255) and " \
+        "not (ip.DstAddr >= 172.16.0.0 and ip.DstAddr <= 172.31.255.255) and " \
+        "not (ip.DstAddr >= 192.168.0.0 and ip.DstAddr <= 192.168.255.255) and " \
+        "not (ip.DstAddr >= 127.0.0.0 and ip.DstAddr <= 127.255.255.255) and " \
+        "not (ip.DstAddr >= 169.254.0.0 and ip.DstAddr <= 169.254.255.255) and " \
+        "not (ip.DstAddr >= 224.0.0.0 and ip.DstAddr <= 239.255.255.255)",
+        vps_ip = vps_ip,
+    )
 }

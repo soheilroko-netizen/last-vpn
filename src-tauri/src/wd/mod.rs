@@ -360,7 +360,7 @@ impl WinDivert {
         }
     }
 
-    /// Close the WinDivert handle.
+    /// Close the WinDivert handle. Used from any thread to wake up a blocking recv.
     pub fn close(&mut self) {
         if self.handle != INVALID_HANDLE_VALUE {
             unsafe {
@@ -369,6 +369,11 @@ impl WinDivert {
             self.handle = INVALID_HANDLE_VALUE;
         }
     }
+
+    /// WinDivert 2.2 doesn't have native non-blocking recv.
+    /// Instead, closing the handle from another thread wakes up recv.
+    /// This method is a no-op for API compatibility.
+    pub fn set_nonblocking(&self, _enable: bool) {}
 
     pub fn is_open(&self) -> bool {
         self.handle != INVALID_HANDLE_VALUE
