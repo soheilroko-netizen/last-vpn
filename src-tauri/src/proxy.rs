@@ -4,7 +4,7 @@ use crate::config::Config;
 use crate::sysdns;
 use crate::sysproxy;
 use crate::wd;
-use crate::wd_engine;
+use crate::wd_engine::WdEngine;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
@@ -582,17 +582,17 @@ fn resolve_hostname(host: &str) -> Result<Vec<String>> {
 /// Intercepts all outbound TCP except: VPS IP, relay port, proxy port, LAN.
 fn build_wd_filter(vps_ip: &str) -> String {
     format!(
-        "not impostor and " \
-        "tcp and (outbound) and " \
-        "not ip.DstAddr == {vps_ip} and " \
-        "not tcp.DstPort == 34010 and " \
-        "not tcp.DstPort == 1080 and " \
-        "not tcp.SrcPort == 1080 and " \
-        "not (ip.DstAddr >= 10.0.0.0 and ip.DstAddr <= 10.255.255.255) and " \
-        "not (ip.DstAddr >= 172.16.0.0 and ip.DstAddr <= 172.31.255.255) and " \
-        "not (ip.DstAddr >= 192.168.0.0 and ip.DstAddr <= 192.168.255.255) and " \
-        "not (ip.DstAddr >= 127.0.0.0 and ip.DstAddr <= 127.255.255.255) and " \
-        "not (ip.DstAddr >= 169.254.0.0 and ip.DstAddr <= 169.254.255.255) and " \
+        "not impostor and "
+        "tcp and (outbound) and "
+        "not ip.DstAddr == {vps_ip} and "
+        "not tcp.DstPort == 34010 and "
+        "not tcp.DstPort == 1080 and "
+        "not tcp.SrcPort == 1080 and "
+        "not (ip.DstAddr >= 10.0.0.0 and ip.DstAddr <= 10.255.255.255) and "
+        "not (ip.DstAddr >= 172.16.0.0 and ip.DstAddr <= 172.31.255.255) and "
+        "not (ip.DstAddr >= 192.168.0.0 and ip.DstAddr <= 192.168.255.255) and "
+        "not (ip.DstAddr >= 127.0.0.0 and ip.DstAddr <= 127.255.255.255) and "
+        "not (ip.DstAddr >= 169.254.0.0 and ip.DstAddr <= 169.254.255.255) and "
         "not (ip.DstAddr >= 224.0.0.0 and ip.DstAddr <= 239.255.255.255)",
         vps_ip = vps_ip,
     )

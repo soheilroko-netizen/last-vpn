@@ -232,7 +232,7 @@ impl WinDivert {
             ($name:expr) => {{
                 let name_c = std::ffi::CString::new($name).ok()?;
                 unsafe {
-                    let ptr = GetProcAddress(dll as _, name_c.as_ptr());
+                    let ptr = GetProcAddress(dll as _, name_c.as_ptr() as *const u8);
                     std::mem::transmute::<*mut c_void, _>(ptr)
                 }
             }};
@@ -258,7 +258,7 @@ impl WinDivert {
         }
         let filter_c = std::ffi::CString::new(filter).map_err(|e| e.to_string())?;
         let handle = unsafe {
-            (self.raw_open)(filter_c.as_ptr(), layer, priority, flags)
+            (self.raw_open)(filter_c.as_ptr() as *const u8, layer, priority, flags)
         };
         if handle == INVALID_HANDLE_VALUE {
             let err = unsafe { GetLastError() };

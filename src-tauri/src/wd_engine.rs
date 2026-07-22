@@ -213,8 +213,9 @@ fn handle_app_outbound(wd: &WinDivert, pkt: &[u8], addr: &WINDIVERT_ADDRESS, ct:
     let mut mod_pkt = pkt.to_vec();
     // Swap IP src↔dst (bytes 12-15 ↔ 16-19)
     let old_src = [mod_pkt[12], mod_pkt[13], mod_pkt[14], mod_pkt[15]];
-    mod_pkt[12..16].copy_from_slice(&mod_pkt[16..20]); // Src = old Dst
-    mod_pkt[16..20].copy_from_slice(&old_src);          // Dst = old Src
+    let old_dst = [mod_pkt[16], mod_pkt[17], mod_pkt[18], mod_pkt[19]];
+    mod_pkt[12..16].copy_from_slice(&old_dst); // Src = old Dst
+    mod_pkt[16..20].copy_from_slice(&old_src); // Dst = old Src
     // Change TCP dst port to relay
     let relay_be = RELAY_PORT.to_be_bytes();
     mod_pkt[tcp_off + 2] = relay_be[0];
@@ -264,8 +265,9 @@ fn handle_relay_response(wd: &WinDivert, pkt: &[u8], addr: &WINDIVERT_ADDRESS, c
 
     // Swap IP src↔dst
     let old_src = [mod_pkt[12], mod_pkt[13], mod_pkt[14], mod_pkt[15]];
-    mod_pkt[12..16].copy_from_slice(&mod_pkt[16..20]); // SrcIP = DstIP (original dst)
-    mod_pkt[16..20].copy_from_slice(&old_src);          // DstIP = SrcIP (local ip)
+    let old_dst = [mod_pkt[16], mod_pkt[17], mod_pkt[18], mod_pkt[19]];
+    mod_pkt[12..16].copy_from_slice(&old_dst); // SrcIP = DstIP (original dst)
+    mod_pkt[16..20].copy_from_slice(&old_src); // DstIP = SrcIP (local ip)
 
     // Restore original dst port as src port
     let dst_port_be = entry.dst_port.to_be_bytes();
