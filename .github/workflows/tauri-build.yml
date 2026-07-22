@@ -44,10 +44,15 @@ jobs:
       - name: Download WinDivert
         shell: pwsh
         run: |
-          # WinDivert 2.2.2 A variant
-          Invoke-WebRequest -Uri "https://reqrypt.org/download/WinDivert-2.2.2-A.zip" -OutFile wd.zip
+          $url = "https://github.com/basil00/WinDivert/releases/download/v2.2.2/WinDivert-2.2.2-A.zip"
+          Write-Host "Downloading from $url"
+          Invoke-WebRequest -Uri $url -OutFile wd.zip
+          Write-Host "Extracting..."
           New-Item -ItemType Directory -Force src-tauri/bin | Out-Null
-          tar -xf wd.zip -C src-tauri/bin --strip-components=1 "WinDivert-2.2.2-A/x64/WinDivert.dll" "WinDivert-2.2.2-A/x64/WinDivert64.sys"
+          # tar doesn't handle nested paths well on windows, use Expand-Archive
+          Expand-Archive -Path wd.zip -DestinationPath wd-tmp -Force
+          Copy-Item "wd-tmp/WinDivert-2.2.2-A/x64/WinDivert.dll" src-tauri/bin/
+          Copy-Item "wd-tmp/WinDivert-2.2.2-A/x64/WinDivert64.sys" src-tauri/bin/
           if (-not (Test-Path "src-tauri/bin/WinDivert.dll")) { throw "WinDivert.dll not extracted!" }
           if (-not (Test-Path "src-tauri/bin/WinDivert64.sys")) { throw "WinDivert64.sys not extracted!" }
           Write-Host "WinDivert DLL: $(Get-Item src-tauri/bin/WinDivert.dll | % Length) bytes"
