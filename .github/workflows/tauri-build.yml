@@ -1,9 +1,9 @@
 name: Tauri Build
 on:
   push:
-    branches: [main, v6]
+    branches: [main, v6, dns-fix]
   pull_request:
-    branches: [main, v6]
+    branches: [main, v6, dns-fix]
 
 jobs:
   build:
