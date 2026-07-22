@@ -414,11 +414,15 @@ impl ProxyManager {
             dns: Some(SbDns {
                 servers: vec![
                     SbDnsServer {
-                        typ: "udp".into(),       // UDP not TCP (port 53 TCP often blocked)
+                        typ: "udp".into(),
                         tag: "dns-remote".into(),
                         server: Some("8.8.8.8".into()),
                         server_port: Some(53),
-                        detour: Some("direct".into()), // DNS via direct, not through proxy
+                        // detour NOT set: typed UDP DNS server uses direct dial by default
+                        // (docs: "equivalent to using an empty direct outbound by default")
+                        // Setting detour:"direct" would be redundant and rejected as
+                        // "detour to an empty direct outbound makes no sense"
+                        detour: None,
                     },
                 ],
                 rules: Some(vec![
@@ -619,7 +623,7 @@ mod tests {
             dns: Some(SbDns {
                 servers: vec![
                     SbDnsServer {
-                        typ: "tcp".into(),
+                        typ: "udp".into(),
                         tag: "dns-remote".into(),
                         server: Some("8.8.8.8".into()),
                         server_port: Some(53),
@@ -649,10 +653,11 @@ mod tests {
             let typ = server["type"].as_str().unwrap();
             assert!(!server.contains_key("address"));
             assert!(!server.contains_key("transport"));
-            assert!(!server.contains_key("detour"));
+            // detour can be absent (not serialized) — that's fine
+            // The typed UDP DNS server uses direct dial by default
 
             match typ {
-                "tcp" => {
+                "udp" => {
                     assert!(server["server"].is_string());
                     assert!(server["server_port"].is_u64());
                 }
