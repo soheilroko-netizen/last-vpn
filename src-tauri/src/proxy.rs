@@ -411,6 +411,7 @@ impl ProxyManager {
                 auto_route: None,
                 strict_route: None,
                 stack: None,
+                dns_server: None,
             }],
             outbounds: self.common_outbounds(),
             route: None,
