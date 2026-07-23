@@ -1,6 +1,7 @@
 // proxy.rs - sing-box proxy manager
 use anyhow::{bail, Context, Result};
 use crate::config::Config;
+use crate::sysdns;
 use crate::sysproxy;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
@@ -69,6 +70,8 @@ struct SbDns {
     rules: Option<Vec<SbDnsRule>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     strategy: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    r#final: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -86,6 +89,8 @@ struct SbDnsServer {
 
 #[derive(Serialize)]
 struct SbDnsRule {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    inbound: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     server: Option<String>,
 }
@@ -105,10 +110,13 @@ struct SbRoute {
 #[derive(Serialize)]
 struct SbRouteRule {
     #[serde(skip_serializing_if = "Option::is_none")]
+    action: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     protocol: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ip_cidr: Option<Vec<String>>,
-    outbound: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    outbound: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -155,6 +163,15 @@ struct SbOutbound {
     tls: Option<SbTls>,
     #[serde(skip_serializing_if = "Option::is_none")]
     detour: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    udp: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    udp_over_tcp: Option<SbUdpOverTcp>,
+}
+
+#[derive(Serialize)]
+struct SbUdpOverTcp {
+    enabled: bool,
 }
 
 #[derive(Serialize)]
@@ -169,13 +186,15 @@ pub struct ProxyManager {
     config_dir: PathBuf,
     config: Config,
     saved_proxy: Arc<Mutex<Option<sysproxy::SavedProxyState>>>,
-    active_mode: Arc<Mutex<Option<String>>>, // records mode when started
+    saved_dns: Arc<Mutex<Option<sysdns::DnsState>>>,
+    active_mode: Arc<Mutex<Option<String>>>,
+    pub debug_log_path: PathBuf,
 }
 
 impl ProxyManager {
     pub fn new() -> Result<Self> {
         let config = Config::load()?;
-        let config_dir = ProjectDirs::from("", "", "stls")
+        let config_dir = ProjectDirs::from("com", "stls", "stls")
             .map(|d| d.config_dir().to_path_buf())
             .unwrap_or_else(|| PathBuf::from("."));
 
@@ -183,10 +202,12 @@ impl ProxyManager {
 
         Ok(ProxyManager {
             child: Arc::new(Mutex::new(None)),
-            config_dir,
+            config_dir: config_dir.clone(),
             config,
             saved_proxy: Arc::new(Mutex::new(None)),
+            saved_dns: Arc::new(Mutex::new(None)),
             active_mode: Arc::new(Mutex::new(None)),
+            debug_log_path: config_dir.join("stls-debug.log"),
         })
     }
 
@@ -203,6 +224,23 @@ impl ProxyManager {
             }
         } else {
             false
+        }
+    }
+
+    fn debug_log(&self, msg: impl AsRef<str>) {
+        use std::io::Write;
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let line = format!("[{secs}] {}\n", msg.as_ref());
+        if let Ok(mut f) = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.debug_log_path)
+        {
+            let _ = f.write_all(line.as_bytes());
         }
     }
 
@@ -226,8 +264,10 @@ impl ProxyManager {
 
         // Re-read config in case user changed mode/settings
         self.config = Config::load()?;
+        self.debug_log(format!("config loaded, mode={}", self.config.mode));
 
         let exe = self.get_bundled_or_download()?;
+        self.debug_log(format!("sing-box exe: {}", exe.display()));
 
         let mode = self.config.mode.clone();
         let cfg = match mode.as_str() {
@@ -238,9 +278,19 @@ impl ProxyManager {
 
         let cfg_json = serde_json::to_string_pretty(&cfg)?;
         let cfg_path = self.config_dir.join("config.json");
-        fs::write(&cfg_path, &cfg_json)?;
+
+        // Skip write if config already matches (skip Windows rebuilds)
+        let current_raw = fs::read_to_string(&cfg_path).ok();
+        let current = current_raw.as_deref();
+        if current != Some(&cfg_json) {
+            fs::write(&cfg_path, &cfg_json)?;
+            self.debug_log(format!("config written to {}", cfg_path.display()));
+        } else {
+            self.debug_log(format!("config unchanged, skipping write"));
+        }
 
         // Validate config before launch
+        self.debug_log("running sing-box check...");
         let check_output = Command::new(&exe)
             .arg("check")
             .arg("-c")
@@ -250,6 +300,7 @@ impl ProxyManager {
         if !check_output.status.success() {
             let err_text = String::from_utf8_lossy(&check_output.stderr);
             let out_text = String::from_utf8_lossy(&check_output.stdout);
+            self.debug_log(format!("config check FAILED: {err_text}{out_text}"));
             bail!(
                 "Config validation failed:\n{}{}\nConfig: {}",
                 err_text.trim(),
@@ -257,10 +308,12 @@ impl ProxyManager {
                 cfg_path.display()
             );
         }
+        self.debug_log("config check passed");
 
         let log_path = self.config_dir.join("sing-box.log");
         let log_file = fs::File::create(&log_path)?;
 
+        self.debug_log("starting sing-box run...");
         // Start sing-box with hidden window on Windows
         #[cfg(target_os = "windows")]
         let child = {
@@ -275,6 +328,7 @@ impl ProxyManager {
                 .stderr(Stdio::from(log_file))
                 .spawn()?
         };
+        self.debug_log("sing-box process spawned");
 
         #[cfg(not(target_os = "windows"))]
         let child = Command::new(&exe)
@@ -303,12 +357,14 @@ impl ProxyManager {
                 Ok(Some(status)) => {
                     // Child exited already — read log
                     let log = fs::read_to_string(&log_path).unwrap_or_default();
+                    self.debug_log(format!("sing-box exited (code={:?})", status.code()));
                     guard.take();
                     *self.active_mode.lock().unwrap() = None;
                     bail!("sing-box exited (code={:?}):\n{}", status.code(), log.trim());
                 }
                 Err(e) => {
                     // try_wait error means child gone
+                    self.debug_log(format!("sing-box check error: {e}"));
                     guard.take();
                     *self.active_mode.lock().unwrap() = None;
                     bail!("sing-box check failed: {e}");
@@ -317,6 +373,19 @@ impl ProxyManager {
             }
         }
         drop(guard);
+
+        // Switch DNS to 8.8.8.8 in VPN mode so queries hit TUN
+        if mode == "vpn" {
+            match sysdns::DnsState::enable() {
+                Ok(dns) => {
+                    *self.saved_dns.lock().unwrap() = Some(dns);
+                    self.debug_log("DNS set to 8.8.8.8");
+                }
+                Err(e) => {
+                    self.debug_log(format!("DNS set failed (non-fatal): {e}"));
+                }
+            }
+        }
 
         Ok(format!("{} mode started", mode.to_uppercase()))
     }
@@ -341,6 +410,15 @@ impl ProxyManager {
             let snapshot = self.saved_proxy.lock().unwrap().take();
             if let Some(ref saved) = snapshot {
                 let _ = sysproxy::restore(saved);
+            }
+        }
+
+        // Restore DNS (DHCP) in VPN mode
+        if mode.as_deref() == Some("vpn") {
+            let dns_state = self.saved_dns.lock().unwrap().take();
+            if let Some(ref dns) = dns_state {
+                let _ = dns.restore();
+                self.debug_log("DNS restored to DHCP");
             }
         }
 
@@ -380,18 +458,15 @@ impl ProxyManager {
     fn build_vpn_config(&self) -> Result<SbConfig> {
         let c = &self.config;
 
-        // Resolve STLS server IP so we can bypass it from the TUN (prevents loop)
+        // Resolve STLS server IP to bypass from TUN (prevents loop)
         let stls_ips: Vec<String> = resolve_hostname(&c.server_address)
             .context("failed to resolve ShadowTLS server address")?;
 
-        let mut bypass_cidrs: Vec<String> = if stls_ips.is_empty() {
-            vec!["198.18.0.0/15".into()] // fallback: sing-box reserved
+        let bypass_cidrs: Vec<String> = if stls_ips.is_empty() {
+            vec!["198.18.0.0/15".into()]
         } else {
             stls_ips.iter().map(|ip| format!("{ip}/32")).collect()
         };
-
-        // Also bypass the remote DNS server directly to prevent circular DNS
-        bypass_cidrs.push("8.8.8.8/32".into());
 
         // Use resolved IP in outbound server fields to avoid circular DNS
         let stls_ip = stls_ips.first()
@@ -414,32 +489,32 @@ impl ProxyManager {
             dns: Some(SbDns {
                 servers: vec![
                     SbDnsServer {
-                        typ: "udp".into(),
-                        tag: "dns-remote".into(),
+                        typ: "https".into(),
+                        tag: "remote-doh".into(),
+                        server: Some("1.1.1.1".into()),
+                        server_port: None,
+                        detour: Some("ss-out".into()),
+                    },
+                    SbDnsServer {
+                        typ: "https".into(),
+                        tag: "google-doh".into(),
                         server: Some("8.8.8.8".into()),
-                        server_port: Some(53),
-                        // detour NOT set: typed UDP DNS server uses direct dial by default
-                        // (docs: "equivalent to using an empty direct outbound by default")
-                        // Setting detour:"direct" would be redundant and rejected as
-                        // "detour to an empty direct outbound makes no sense"
-                        detour: None,
+                        server_port: None,
+                        detour: Some("ss-out".into()),
                     },
                 ],
-                rules: Some(vec![
-                    SbDnsRule {
-                        server: Some("dns-remote".into()),
-                    },
-                ]),
-                strategy: Some("prefer_ipv4".into()),
+                rules: None,
+                strategy: None,
+                r#final: Some("remote-doh".into()),
             }),
             inbounds: vec![SbInbound {
                 typ: "tun".into(),
                 tag: "tun-in".into(),
                 listen: None,
                 listen_port: None,
-                interface_name: Some("stls-tun".into()),
-                address: Some(vec!["172.19.0.1/24".into()]), // /24 not /30
-                mtu: Some(1400),
+                interface_name: None,
+                address: Some(vec!["172.19.0.1/30".into()]),
+                mtu: None,
                 auto_route: Some(true),
                 strict_route: Some(true),
                 stack: Some("system".into()),
@@ -448,14 +523,27 @@ impl ProxyManager {
             route: Some(SbRoute {
                 rules: Some(vec![
                     SbRouteRule {
+                        action: Some("sniff".into()),
+                        protocol: None,
+                        ip_cidr: None,
+                        outbound: None,
+                    },
+                    SbRouteRule {
+                        action: Some("hijack-dns".into()),
+                        protocol: Some("dns".into()),
+                        ip_cidr: None,
+                        outbound: None,
+                    },
+                    SbRouteRule {
+                        action: None,
                         protocol: None,
                         ip_cidr: Some(bypass_cidrs),
-                        outbound: "direct".into(),
+                        outbound: Some("direct".into()),
                     },
                 ]),
                 final_outbound: Some("ss-out".into()),
                 auto_detect_interface: Some(true),
-                default_domain_resolver: Some("dns-remote".into()),
+                default_domain_resolver: Some("remote-doh".into()),
             }),
         })
     }
@@ -475,6 +563,8 @@ impl ProxyManager {
                 version: None,
                 tls: None,
                 detour: Some("shadowtls-out".into()),
+                udp: Some(true),
+                udp_over_tcp: Some(SbUdpOverTcp { enabled: true }),
             },
             SbOutbound {
                 typ: "shadowtls".into(),
@@ -489,6 +579,8 @@ impl ProxyManager {
                     insecure: false,
                 }),
                 detour: None,
+                udp: Some(true),
+                udp_over_tcp: None,
                 method: None,
             },
             SbOutbound {
@@ -501,6 +593,8 @@ impl ProxyManager {
                 version: None,
                 tls: None,
                 detour: None,
+                udp: None,
+                udp_over_tcp: None,
             },
         ]
     }
@@ -623,7 +717,7 @@ mod tests {
             dns: Some(SbDns {
                 servers: vec![
                     SbDnsServer {
-                        typ: "udp".into(),
+                        typ: "tcp".into(),
                         tag: "dns-remote".into(),
                         server: Some("8.8.8.8".into()),
                         server_port: Some(53),
@@ -631,6 +725,7 @@ mod tests {
                     },
                 ],
                 rules: Some(vec![SbDnsRule {
+                    inbound: None,
                     server: Some("dns-remote".into()),
                 }]),
                 strategy: Some("prefer_ipv4".into()),
@@ -653,11 +748,10 @@ mod tests {
             let typ = server["type"].as_str().unwrap();
             assert!(!server.contains_key("address"));
             assert!(!server.contains_key("transport"));
-            // detour can be absent (not serialized) — that's fine
-            // The typed UDP DNS server uses direct dial by default
+            assert!(!server.contains_key("detour"));
 
             match typ {
-                "udp" => {
+                "tcp" => {
                     assert!(server["server"].is_string());
                     assert!(server["server_port"].is_u64());
                 }
