@@ -241,13 +241,13 @@ impl WinDivert {
         Some(WinDivert {
             handle: INVALID_HANDLE_VALUE,
             dll,
-            raw_open: get_fn!("WinDivertOpen")?,
-            raw_close: get_fn!("WinDivertClose")?,
-            raw_recv: get_fn!("WinDivertRecv")?,
-            raw_send: get_fn!("WinDivertSend")?,
-            raw_set_param: get_fn!("WinDivertSetParam")?,
-            raw_calc_checksums: get_fn!("WinDivertHelperCalcChecksums")?,
-            raw_parse_packet: get_fn!("WinDivertHelperParsePacket")?,
+            raw_open: get_fn!("WinDivertOpen"),
+            raw_close: get_fn!("WinDivertClose"),
+            raw_recv: get_fn!("WinDivertRecv"),
+            raw_send: get_fn!("WinDivertSend"),
+            raw_set_param: get_fn!("WinDivertSetParam"),
+            raw_calc_checksums: get_fn!("WinDivertHelperCalcChecksums"),
+            raw_parse_packet: get_fn!("WinDivertHelperParsePacket"),
         })
     }
 
