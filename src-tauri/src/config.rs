@@ -127,6 +127,11 @@ impl ProfileStore {
         self.switch(name)
     }
 
+    pub fn add_profile(&mut self, name: String, config: Config) -> Result<()> {
+        self.profiles.push(Profile { name, config });
+        self.save()
+    }
+
     pub fn delete_profile(&mut self, name: &str) -> Result<()> {
         self.profiles.retain(|p| p.name != name);
         if self.active_profile == name {
