@@ -639,10 +639,11 @@ fn resolve_hostname(host: &str) -> Result<Vec<String>> {
 
 /// Build WinDivert filter string for VPN mode.
 /// Intercepts all outbound TCP except: VPS IP, relay port, proxy port, LAN.
+/// Note: 'impostor' is NOT a filter-language keyword (WinDivert 2.2) — it's
+/// checked in software inside the packet loop instead.
 fn build_wd_filter(vps_ip: &str) -> String {
     format!(
         concat!(
-            "not impostor and ",
             "tcp and (outbound) and ",
             "not ip.DstAddr == {} and ",
             "not tcp.DstPort == 34010 and ",
