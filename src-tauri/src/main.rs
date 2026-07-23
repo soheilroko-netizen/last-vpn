@@ -6,6 +6,7 @@ use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 mod config;
 mod proxy;
+mod sysdns;
 mod sysproxy;
 
 use config::Config;
