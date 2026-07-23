@@ -8,6 +8,8 @@ interface Config {
   stls_password: string;
   stls_sni: string;
   socks5_port: number;
+  mtu: number;
+  mode: string;
 }
 
 interface Profile {
@@ -38,6 +40,7 @@ function fillForm(c: Config) {
   (document.getElementById('stls_password') as HTMLInputElement).value = c.stls_password;
   (document.getElementById('stls_sni') as HTMLInputElement).value = c.stls_sni;
   (document.getElementById('socks5_port') as HTMLInputElement).value = c.socks5_port.toString();
+  (document.getElementById('mtu') as HTMLInputElement).value = c.mtu.toString();
 }
 
 function readForm(): Config {
@@ -49,6 +52,8 @@ function readForm(): Config {
     stls_password: (document.getElementById('stls_password') as HTMLInputElement).value,
     stls_sni: (document.getElementById('stls_sni') as HTMLInputElement).value,
     socks5_port: parseInt((document.getElementById('socks5_port') as HTMLInputElement).value, 10),
+    mtu: parseInt((document.getElementById('mtu') as HTMLInputElement).value, 10) || 0,
+    mode: '',
   };
 }
 

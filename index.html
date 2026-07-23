@@ -109,6 +109,11 @@
             <input type="number" id="socks5_port" name="socks5_port" placeholder="1080" min="1" max="65535" required />
           </div>
 
+          <div class="form-group">
+            <label for="mtu">MTU (0 = auto)</label>
+            <input type="number" id="mtu" name="mtu" placeholder="0" min="0" max="9000" />
+          </div>
+
           <div class="controls">
             <button type="submit" class="btn btn-primary">Save</button>
             <button type="button" id="btn-back" class="btn btn-secondary">Back</button>

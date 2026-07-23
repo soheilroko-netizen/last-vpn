@@ -20,7 +20,9 @@ pub struct Config {
     #[serde(default = "default_socks5_port")]
     pub socks5_port: u16,
     #[serde(default = "default_mode")]
-    pub mode: String,
+    pub mode: String, // "proxy" or "vpn"
+    #[serde(default = "default_mtu")]
+    pub mtu: u32, // 0 = let sing-box decide
 }
 
 fn default_server_address() -> String { "ns.baft.uk".to_string() }
@@ -29,6 +31,7 @@ fn default_stls_port() -> u16 { 8553 }
 fn default_stls_sni() -> String { "dl.google.com".to_string() }
 fn default_socks5_port() -> u16 { 1080 }
 fn default_mode() -> String { "proxy".to_string() }
+fn default_mtu() -> u32 { 0 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Profile {
@@ -53,6 +56,7 @@ impl Default for Config {
             stls_sni: "dl.google.com".to_string(),
             socks5_port: 1080,
             mode: "proxy".to_string(),
+            mtu: 0,
         }
     }
 }
@@ -72,14 +76,8 @@ impl Config {
             return Ok(Self::default());
         }
         let content = fs::read_to_string(&path)?;
-        // Try to parse, fallback to defaults on any error (migration safety)
-        match serde_json::from_str::<Config>(&content) {
-            Ok(config) => Ok(config),
-            Err(_) => {
-                eprintln!("[stls] config parse failed, using defaults");
-                Ok(Self::default())
-            }
-        }
+        let config: Config = serde_json::from_str(&content)?;
+        Ok(config)
     }
 
     pub fn save(&self) -> Result<()> {
@@ -102,15 +100,7 @@ impl ProfileStore {
     pub fn load() -> Result<Self> {
         let path = Self::profiles_path()?;
         if !path.exists() {
-            // Create default profile from current config
-            let default_config = Config::load().unwrap_or_default();
-            return Ok(Self {
-                profiles: vec![Profile {
-                    name: "Default".to_string(),
-                    config: default_config,
-                }],
-                active_profile: "Default".to_string(),
-            });
+            return Ok(Self::default());
         }
         let content = fs::read_to_string(&path)?;
         let store: ProfileStore = serde_json::from_str(&content)?;
@@ -124,38 +114,24 @@ impl ProfileStore {
         Ok(())
     }
 
-    pub fn get_active_config(&self) -> Result<Config> {
-        self.profiles
-            .iter()
-            .find(|p| p.name == self.active_profile)
-            .map(|p| p.config.clone())
-            .ok_or_else(|| anyhow::anyhow!("Active profile not found"))
-    }
-
-    pub fn add_profile(&mut self, name: String, config: Config) -> Result<()> {
+    pub fn switch(&mut self, name: &str) -> Result<()> {
         if self.profiles.iter().any(|p| p.name == name) {
-            anyhow::bail!("Profile '{}' already exists", name);
+            self.active_profile = name.to_string();
+            self.save()
+        } else {
+            Err(anyhow::anyhow!("Unknown profile: {name}"))
         }
-        self.profiles.push(Profile { name, config });
-        self.save()
     }
+}
 
-    pub fn delete_profile(&mut self, name: &str) -> Result<()> {
-        if name == "Default" {
-            anyhow::bail!("Cannot delete Default profile");
+impl Default for ProfileStore {
+    fn default() -> Self {
+        Self {
+            profiles: vec![Profile {
+                name: "Default".into(),
+                config: Config::default(),
+            }],
+            active_profile: "Default".into(),
         }
-        if self.active_profile == name {
-            anyhow::bail!("Cannot delete active profile");
-        }
-        self.profiles.retain(|p| p.name != name);
-        self.save()
-    }
-
-    pub fn switch_profile(&mut self, name: &str) -> Result<()> {
-        if !self.profiles.iter().any(|p| p.name == name) {
-            anyhow::bail!("Profile '{}' not found", name);
-        }
-        self.active_profile = name.to_string();
-        self.save()
     }
 }
