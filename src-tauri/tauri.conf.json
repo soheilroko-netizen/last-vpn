@@ -12,7 +12,11 @@
   "bundle": {
     "active": true,
     "targets": ["nsis", "msi"],
-    "resources": ["bin/sing-box.exe"],
+    "resources": [
+      "bin/sing-box.exe",
+      "bin/WinDivert.dll",
+      "bin/WinDivert64.sys"
+    ],
     "icon": [
       "icons/icon.png",
       "icons/icon.ico"

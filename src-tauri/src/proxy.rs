@@ -543,17 +543,21 @@ impl ProxyManager {
 
     // ── WinDivert bundling ──────────────────────────────────────────
 
-    /// Find WinDivert.dll — checks alongside exe, config dir, current dir.
+    /// Find WinDivert.dll — checks alongside exe, bin/, resources/, config dir, current dir.
     fn bundle_windivert(&self) -> Result<String> {
         let candidates = {
             let mut v = Vec::new();
             if let Ok(exe) = std::env::current_exe() {
                 if let Some(parent) = exe.parent() {
                     v.push(parent.join("WinDivert.dll"));
+                    v.push(parent.join("bin").join("WinDivert.dll"));
+                    v.push(parent.join("resources").join("bin").join("WinDivert.dll"));
                 }
             }
             v.push(self.config_dir.join("WinDivert.dll"));
+            v.push(self.config_dir.join("bin").join("WinDivert.dll"));
             v.push(PathBuf::from("WinDivert.dll"));
+            v.push(PathBuf::from("bin").join("WinDivert.dll"));
             v
         };
         for c in &candidates {
