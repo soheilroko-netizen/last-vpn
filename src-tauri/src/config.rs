@@ -122,6 +122,20 @@ impl ProfileStore {
             Err(anyhow::anyhow!("Unknown profile: {name}"))
         }
     }
+
+    pub fn switch_profile(&mut self, name: &str) -> Result<()> {
+        self.switch(name)
+    }
+
+    pub fn delete_profile(&mut self, name: &str) -> Result<()> {
+        self.profiles.retain(|p| p.name != name);
+        if self.active_profile == name {
+            self.active_profile = self.profiles.first()
+                .map(|p| p.name.clone())
+                .unwrap_or_else(|| "Default".into());
+        }
+        self.save()
+    }
 }
 
 impl Default for ProfileStore {
