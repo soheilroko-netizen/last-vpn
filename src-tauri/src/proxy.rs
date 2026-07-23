@@ -563,7 +563,7 @@ impl ProxyManager {
                 version: None,
                 tls: None,
                 detour: Some("shadowtls-out".into()),
-                udp: Some(true),
+                udp: None,
                 udp_over_tcp: Some(SbUdpOverTcp { enabled: true }),
             },
             SbOutbound {
@@ -579,7 +579,7 @@ impl ProxyManager {
                     insecure: false,
                 }),
                 detour: None,
-                udp: Some(true),
+                udp: None,
                 udp_over_tcp: None,
                 method: None,
             },
