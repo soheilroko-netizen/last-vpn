@@ -338,8 +338,7 @@ impl ProxyManager {
         let filter = build_wd_filter(&vps_ip);
         let engine = WdEngine::new(&wd_dll);
         engine.start(&filter)
-            .map_err(|e| anyhow::anyhow!("{e}"))
-            .context("WinDivert engine failed to start")?;
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
         *self.wd_engine.lock().unwrap() = Some(engine);
 
         // 5. Override system DNS
@@ -543,8 +542,20 @@ impl ProxyManager {
 
     // ── WinDivert bundling ──────────────────────────────────────────
 
-    /// Find WinDivert.dll — checks alongside exe, bin/, resources/, config dir, current dir.
+    /// Find or download WinDivert.dll — checks alongside exe, bin/, resources/, config
+    /// dir, then downloads to <config_dir>/bin/ if not found.
     fn bundle_windivert(&self) -> Result<String> {
+        // Prefer bundled, then cached
+        let bin_dir = self.config_dir.join("bin");
+        let cached_dll = bin_dir.join("WinDivert.dll");
+        let cached_sys = bin_dir.join("WinDivert64.sys");
+
+        // Quick check for already-downloaded copy
+        if cached_dll.exists() && cached_sys.exists() {
+            return Ok(cached_dll.to_string_lossy().to_string());
+        }
+
+        // Check all possible bundling/extraction locations
         let candidates = {
             let mut v = Vec::new();
             if let Ok(exe) = std::env::current_exe() {
@@ -555,7 +566,6 @@ impl ProxyManager {
                 }
             }
             v.push(self.config_dir.join("WinDivert.dll"));
-            v.push(self.config_dir.join("bin").join("WinDivert.dll"));
             v.push(PathBuf::from("WinDivert.dll"));
             v.push(PathBuf::from("bin").join("WinDivert.dll"));
             v
@@ -565,9 +575,52 @@ impl ProxyManager {
                 return Ok(c.to_string_lossy().to_string());
             }
         }
-        // Download if not found
-        eprintln!("[stls] WinDivert.dll not bundled — download not implemented yet");
-        bail!("WinDivert.dll not found. Bundle WinDivert.dll and WinDivert64.sys in the installer.");
+
+        // Not bundled and not cached — download WinDivert 2.2.2
+        eprintln!("[stls] WinDivert not bundled, downloading...");
+        self.download_windivert(&bin_dir)?;
+        Ok(cached_dll.to_string_lossy().to_string())
+    }
+
+    fn download_windivert(&self, dest_dir: &Path) -> Result<()> {
+        let url = "https://github.com/basil00/WinDivert/releases/download/v2.2.2/WinDivert-2.2.2-A.zip";
+        eprintln!("[stls] Downloading WinDivert from {url}");
+        let bytes = reqwest::blocking::Client::builder()
+            .user_agent("stls")
+            .build()?
+            .get(url)
+            .send()?
+            .error_for_status()?
+            .bytes()?;
+
+        let reader = std::io::Cursor::new(bytes);
+        let mut archive = zip::ZipArchive::new(reader)?;
+
+        fs::create_dir_all(dest_dir)?;
+
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i)?;
+            let name = file.name().replace('\\', "/");
+
+            // Extract only x64 WinDivert.dll and WinDivert64.sys
+            if name.ends_with("x64/WinDivert.dll") {
+                let mut buf = Vec::new();
+                file.read_to_end(&mut buf)?;
+                fs::write(dest_dir.join("WinDivert.dll"), &buf)?;
+                eprintln!("[stls] Extracted WinDivert.dll ({} bytes)", buf.len());
+            } else if name.ends_with("x64/WinDivert64.sys") {
+                let mut buf = Vec::new();
+                file.read_to_end(&mut buf)?;
+                fs::write(dest_dir.join("WinDivert64.sys"), &buf)?;
+                eprintln!("[stls] Extracted WinDivert64.sys ({} bytes)", buf.len());
+            }
+        }
+
+        let dll = dest_dir.join("WinDivert.dll");
+        if !dll.exists() {
+            bail!("WinDivert.dll not found in release zip");
+        }
+        Ok(())
     }
 }
 
